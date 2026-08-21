@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Messagerie — Le Cercle</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg1:#0A1628;--card:rgba(123,92,255,.06);--border:rgba(123,92,255,.15);--p:#7B5CFF;--p2:#5A6CFF;--t:#fff;--t2:#D6D9F0;--t3:#8891B8;--t4:#4a5278;--green:#00E676}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Outfit,sans-serif;background:var(--bg1);color:var(--t2);padding:28px;min-height:100vh}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px}
+h2{font-family:'Space Grotesk',sans-serif;font-size:20px;color:#fff;margin-bottom:6px}
+.sub{color:var(--t3);font-size:13px;margin-bottom:16px}
+label{display:block;font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
+input,select,textarea{
+  width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(123,92,255,.2);
+  background:rgba(15,28,63,.5);color:#fff;font-family:Outfit,sans-serif;font-size:13px;outline:none;margin-bottom:12px
+}
+textarea{min-height:120px;resize:vertical;line-height:1.5}
+.btn{
+  padding:12px 20px;border-radius:12px;border:none;cursor:pointer;font-weight:600;font-size:13px;
+  background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;font-family:Outfit,sans-serif
+}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.msg{font-size:13px;margin-top:10px;display:none}
+.msg.ok{display:block;color:var(--green)}
+.msg.err{display:block;color:#ff6b6b}
+.empty{text-align:center;color:var(--t3);padding:28px 12px;font-size:14px}
+.inbox-item{padding:12px 0;border-bottom:1px solid rgba(123,92,255,.1)}
+.inbox-item:last-child{border-bottom:none}
+.inbox-item .from{color:#fff;font-weight:600;font-size:13px}
+.inbox-item .date{color:var(--t4);font-size:11px;margin-left:8px}
+.inbox-item .body{color:var(--t2);font-size:13px;margin-top:6px;line-height:1.5;white-space:pre-wrap}
+</style>
+<script>
+var TOKEN = sessionStorage.getItem('nyxia_token') || '';
+async function api(path, method, body) {
+  var opts = { method: method || 'GET', headers: { 'Content-Type': 'application/json', 'X-Cercle-Token': TOKEN } };
+  if (body) opts.body = JSON.stringify(body);
+  var r = await fetch(path, opts);
+  var data = await r.json().catch(function(){ return {}; });
+  if (!r.ok) throw new Error(data.error || ('Erreur ' + r.status));
+  return data;
+}
+function showStatus(text, ok) {
+  var el = document.getElementById('status');
+  el.textContent = text;
+  el.className = 'msg ' + (ok ? 'ok' : 'err');
+}
+</script>
+</head>
+<body>
+<div style="max-width:640px;margin:0 auto">
+
+  <div class="card">
+    <h2>💬 Écrire un message</h2>
+    <p class="sub">SuperAdmin ou un membre de ton cercle</p>
+
+    <label for="msg-to">Destinataire</label>
+    <select id="msg-to">
+      <option value="superadmin">SuperAdmin</option>
+      <option value="leader">Leader de mon cercle</option>
+    </select>
+
+    <label for="msg-subject">Sujet (optionnel)</label>
+    <input type="text" id="msg-subject" placeholder="Sujet">
+
+    <label for="msg-body">Message</label>
+    <textarea id="msg-body" placeholder="Écris ton message ici…"></textarea>
+
+    <button type="button" class="btn" id="btn-send" onclick="sendMessage()">Envoyer</button>
+    <div id="status" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:18px">Boîte de réception</h2>
+    <p class="sub">Messages reçus</p>
+    <div id="inbox" class="empty">Aucun message pour le moment</div>
+  </div>
+
+</div>
+<script>
+async function sendMessage() {
+  var to = document.getElementById('msg-to').value;
+  var subject = document.getElementById('msg-subject').value.trim();
+  var body = document.getElementById('msg-body').value.trim();
+  var btn = document.getElementById('btn-send');
+  if (!body) { showStatus('Écris un message avant d’envoyer.', false); return; }
+  btn.disabled = true;
+  try {
+    // Branche sur l’API messages du Worker (Studio / Cercle)
+    var out = await api('/api/messages/send', 'POST', {
+      token: TOKEN,
+      to: to,
+      subject: subject,
+      body: body
+    });
+    showStatus(out.success !== false ? 'Message envoyé.' : (out.error || 'Envoi impossible'), out.success !== false);
+    if (out.success !== false) {
+      document.getElementById('msg-body').value = '';
+      document.getElementById('msg-subject').value = '';
+      loadInbox();
+    }
+  } catch (e) {
+    // Si l’API n’est pas encore branchée : on confirme côté UI que le texte est prêt
+    showStatus('Envoi : ' + e.message + ' — le formulaire est prêt ; l’API messages sera finalisée au prochain branchement.', false);
+  }
+  btn.disabled = false;
+}
+
+async function loadInbox() {
+  var box = document.getElementById('inbox');
+  try {
+    var out = await api('/api/messages', 'POST', { token: TOKEN });
+    var list = out.messages || out.items || [];
+    if (!list.length) {
+      box.className = 'empty';
+      box.textContent = 'Aucun message pour le moment';
+      return;
+    }
+    box.className = '';
+    box.innerHTML = list.map(function(m){
+      return '<div class="inbox-item"><span class="from">'+(m.from||m.sender||'—')+'</span>'
+        +'<span class="date">'+(m.date||m.created_at||'')+'</span>'
+        +'<div class="body">'+(m.body||m.content||'')+'</div></div>';
+    }).join('');
+  } catch (e) {
+    box.className = 'empty';
+    box.textContent = 'Aucun message pour le moment';
+  }
+}
+loadInbox();
+</script>
+</body>
+</html>
