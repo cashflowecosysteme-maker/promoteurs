@@ -346,12 +346,14 @@
         body: JSON.stringify({ email: email, password: password })
       })
       .then(function(r) {
-        return r.json().then(function(data) {
+        return r.text().then(function(txt) {
+          var data = {};
+          try { data = JSON.parse(txt); } catch (e) {
+            data = { error: 'Réponse invalide du serveur (HTTP ' + r.status + '). Redéploie le Worker promoteurs avec /api/login.' };
+          }
           data.__status = r.status;
           data.__ok = r.ok;
           return data;
-        }).catch(function() {
-          return { __status: r.status, __ok: r.ok, error: 'Réponse invalide du serveur.' };
         });
       })
       .then(function(data) {
