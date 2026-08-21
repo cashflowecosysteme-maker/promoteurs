@@ -310,7 +310,7 @@
         <a class="nav-item" id="nav-miroir" href="https://www.lemiroirnyxia.com/fr/login" target="_blank" rel="noopener">
           <span class="nav-icon">🪞</span> Mon Espace <span class="nav-arrow">↗</span>
         </a>
-        <a class="nav-item" id="nav-groupe" href="https://www.facebook.com/groups/nyxiastudioprompts" target="_blank" rel="noopener">
+        <a class="nav-item" id="nav-groupe" href="https://www.facebook.com/groups/cerclemagique" target="_blank" rel="noopener">
           <span class="nav-icon">👥</span> Accès au groupe <span class="nav-arrow">↗</span>
         </a>
         <div class="nav-item" id="nav-messages" onclick="showPanel('messages'); loadMessages()">
@@ -423,7 +423,7 @@
 
       <!-- Panel Cercle NyXia — multi-modèles (OpenRouter) -->
       <div class="panel" id="panel-studio" style="flex-direction:column">
-        <iframe id="studio-iframe" src="/studio-prompt.html" style="width:100%;height:100%;border:none;display:block" title="Cercle NyXia"></iframe>
+        <iframe id="studio-iframe" src="/promo-home.html" style="width:100%;height:100%;border:none;display:block" title="Cercle NyXia"></iframe>
       </div>
 
     </div>
@@ -699,7 +699,7 @@
       var iframe = document.getElementById('studio-iframe')
       if (!iframe) return
       var tok = sessionToken || sessionStorage.getItem('nyxia_token') || ''
-      var base = '/studio-prompt.html?t=' + encodeURIComponent(tok)
+      var base = '/promo-home.html?t=' + encodeURIComponent(tok)
       // Recharge seulement si pas encore chargé (évite d'effacer l'état mémoire inutilement ;
       // sessionStorage restaure la conversation de toute façon)
       if (!iframe.getAttribute('data-loaded')) {
@@ -818,16 +818,20 @@
     function sendWelcome() {
       var name = clientName || 'Membre'
       var welcome = '✦ Allô ' + name + ' 💜\n\n' +
-        'Tu n\'es pas ici par hasard. Bienvenue dans ton espace CashFlow — ton sanctuaire de travail.\n\n' +
-        'Tu n\'as plus à crier dans le vide ni à déranger tes proches. Je t\'ouvre les portes de nos trois grands Cercles, 88 000 personnes réunies : Les Entrepreneurs du Québec, CashFlow™, et le [Cercle Magique « L\'âme-agit »](https://www.facebook.com/groups/cerclemagique). C\'est là que tu vas tisser des liens vrais.\n\n' +
-        'Dis-moi — as-tu envie qu\'Éric te forme et te donne de quoi publier aujourd\'hui, ou veux-tu d\'abord entendre la vision de Diane ? ✦'
+        'Bienvenue dans ton espace du **Cercle d\'entraide**.\n\n' +
+        'Diane t\'aide à comprendre les cercles, NyXia t\'oriente, Éric t\'aide à communiquer — toujours dans l\'entraide, jamais en mode vente dure.\n\n' +
+        'Par où veux-tu commencer ? ✦'
       addBotMessage(welcome)
       addAlphaChoiceButtons()
     }
 
     var ALPHA_INFO = {
       diane: { name: 'Diane',  icon: '👑', sub: 'La créatrice — présente en clone IA', greeting: '💜 Ah, te voilà. Je suis **Diane** — enfin, ma présence sous forme de clone IA, pour être là avec toi pendant ta formation. Dis-moi ce qui t\'habite aujourd\'hui : l\'envie de comprendre le *pourquoi* derrière tout ça, ou simplement besoin d\'un peu d\'élan ? ✨' },
-      eric:   { name: 'Éric',   icon: '🔥', sub: 'Gardien-formateur du Portail CashFlow', greeting: '🔥 Eh bien, eh bien… regarde qui vient de franchir le portail !\n\nMoi, c\'est Éric, le Gardien et formateur du Portail CashFlow™.\n\nQue souhaites-tu faire maintenant ?\n\n📘 Commencer ta formation sur la communication à l\'ère numérique ;\n📜 Recevoir un parchemin prêt à publier ;\n💬 Me transmettre un commentaire ou un message privé que tu as reçu afin que je t\'aide à préparer une réponse parfaitement adaptée à cette personne.\n\nÉcris simplement :\n👉 « Donne-moi un parchemin »\nou\n👉 « Voici le message que j\'ai reçu : » puis colle le commentaire ou le message privé directement ici.\n\nJe prendrai ensuite le relais pour te guider dans la création d\'une réponse humaine, naturelle et ultra personnalisée. 👑😉' }
+      eric:   { name: 'Éric',   icon: '🔥', sub: 'Communication · Cercle', greeting: '🔥 Salut !
+
+Moi c\'est **Éric**. Je t\'aide à communiquer dans le Cercle : publications chaleureuses, réponses aux commentaires et messages — pour créer de la confiance, pas de la pression.
+
+Colle-moi un message reçu, ou dis-moi ce que tu veux publier. 🔥' }
     }
     var AGENT_IMAGES = {
       nyxia: '/NyXia.png',
@@ -912,10 +916,6 @@
       nyxia:  '/chat-nyxia.html',
       diane:  '/chat-diane.html',
       eric:   '/chat-eric.html',
-      kael:   '/chat-kael.html',
-      lena:   '/chat-lena.html',
-      selena: '/chat-selena.html',
-      alex:   '/chat-alex.html'
     }
 
     function openAgentTab(key) {
@@ -1220,14 +1220,14 @@
     var _msgDiane = null;
     var AGENT_WELCOME_AUDIO = {
       nyxia: '/AccueilNyXiaClientes.mp3',
-      diane: '/Bienvenue_Diane.mp3',   // 👉 Diane : pousse ce fichier (ou ajuste le nom)
-      eric:  '/Bienvenue_Eric_CashFlow.mp3'  // 👉 pousse ce fichier (ou ajuste le nom)
+      diane: '',   // 👉 Diane : pousse ce fichier (ou ajuste le nom)
+      eric:  ''  // 👉 pousse ce fichier (ou ajuste le nom)
     }
 
     // Vidéos d'accueil (Alexya.ia) — jouées UNE fois à la première visite de chaque
     // personnage, toujours EN PLUS du texte de bienvenue, jamais à sa place.
     var AGENT_WELCOME_VIDEO = {
-      eric: 'https://d1yei2z3i6k35z.cloudfront.net/1872133/6a7606ee6619d0.98160655_VideoBienvenueEric.mp4'   // hébergée en externe (CloudFront) car trop lourde pour GitHub
+      eric: ''   // hébergée en externe (CloudFront) car trop lourde pour GitHub
     }
 
     function jouerMessageDiane() {
