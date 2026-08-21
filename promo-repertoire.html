@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Produits à partager — Cercle NyXia</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0A1628;--card:rgba(123,92,255,.06);--border:rgba(123,92,255,.15);--p:#7B5CFF;--p2:#5A6CFF;--t:#fff;--t2:#D6D9F0;--t3:#8891B8;--t4:#4a5278;--green:#00E676;--gold:#F4C842}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Outfit,sans-serif;background:var(--bg);color:var(--t2);padding:28px;min-height:100vh}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px}
+h1{font-family:'Space Grotesk',sans-serif;font-size:22px;color:#fff;margin-bottom:6px}
+.sub{color:var(--t3);font-size:13px;margin-bottom:16px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}
+@media(max-width:700px){.stats{grid-template-columns:1fr 1fr}}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;text-align:center}
+.stat b{display:block;font-size:22px;color:#fff;margin-top:4px}
+.stat.money b{color:var(--green)}
+.stat span{font-size:12px;color:var(--t3)}
+.lien{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.lien code{flex:1;min-width:180px;padding:12px 14px;border-radius:12px;background:rgba(15,28,63,.5);border:1px solid var(--border);color:#fff;font-size:13px;word-break:break-all}
+.btn{padding:10px 16px;border-radius:12px;border:none;cursor:pointer;font-weight:600;font-size:13px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;font-family:Outfit,sans-serif}
+.btn-ghost{background:rgba(123,92,255,.12);border:1px solid rgba(123,92,255,.25);color:#fff}
+.empty{text-align:center;color:var(--t3);padding:36px 12px;font-size:14px}
+a.btn{text-decoration:none;display:inline-block}
+</style>
+<script>
+var TOKEN=sessionStorage.getItem('nyxia_token')||'';
+async function api(p,m,b){var o={method:m||'GET',headers:{'Content-Type':'application/json','X-Cercle-Token':TOKEN}};if(b)o.body=JSON.stringify(b);var r=await fetch(p,o);return r.json().catch(function(){return{}})}
+function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDigits:2,maximumFractionDigits:2})+' $'}
+</script>
+</head><body>
+
+<h1>📦 Produits à partager</h1>
+<p class="sub">Choisis dans le Répertoire les offres que tu veux faire connaître. Chaque produit a un lien avec <b style="color:#fff">ton</b> code.</p>
+<div id="list" class="empty">Chargement…</div>
+<script>
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+(async function(){
+  var auth=await api('/api/check-auth','POST',{token:TOKEN});
+  var code=auth.code||'';
+  var box=document.getElementById('list');
+  try{
+    var out=await fetch('/api/repertoire').then(function(r){return r.json()});
+    var products=out.products||[];
+    if(!products.length){
+      box.className='empty';
+      box.textContent='Aucun produit publié pour le moment dans le Répertoire.';
+      return;
+    }
+    box.className='';
+    box.innerHTML=products.map(function(p){
+      var base=p.affiliate_link||('/produit.html?id='+encodeURIComponent(p.id));
+      var share=base+(base.indexOf('?')>=0?'&':'?')+'ref='+encodeURIComponent(code);
+      return '<div class="card"><div style="font-weight:600;color:#fff">' + esc(p.title) + '</div>'
+        +'<p class="sub" style="margin:6px 0">' + esc((p.description_short||'').slice(0,120)) + '</p>'
+        +'<div class="lien"><code>' + esc(share) + '</code>'
+        +'<button type="button" class="btn btn-ghost" data-l="'+esc(share)+'">Copier</button></div></div>';
+    }).join('');
+    box.querySelectorAll('button[data-l]').forEach(function(b){
+      b.onclick=function(){ navigator.clipboard.writeText(b.getAttribute('data-l')); };
+    });
+  }catch(e){
+    box.textContent='Impossible de charger le Répertoire.';
+  }
+})();
+</script>
+</body></html>
