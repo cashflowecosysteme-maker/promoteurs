@@ -24,4 +24,4 @@ binding = "VECTORIZE_INDEX"
 index_name = "univers-livres"
 
 [vars]
-SITE_URL = "https://cercles.nyxia.top"
+SITE_URL = "https://promoteurs.nyxia.top"
