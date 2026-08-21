@@ -54,8 +54,16 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
   var lien=code?('https://nyxia.top/r/'+code):'—';
   document.getElementById('lien').textContent=lien;
   document.getElementById('copy').onclick=function(){ if(code) navigator.clipboard.writeText(lien); };
-  document.getElementById('gains').textContent=money(0);
-  document.getElementById('pending').textContent=money(0);
+  try {
+    var st = await api('/api/stats','POST',{token:TOKEN});
+    document.getElementById('gains').textContent = money(st.gains||0);
+    document.getElementById('pending').textContent = money(st.pending||0);
+    document.getElementById('cercle').textContent = String(st.team_total||st.team_n1||0);
+    document.getElementById('clics').textContent = String(st.clicks||0);
+  } catch (e) {
+    document.getElementById('gains').textContent = money(0);
+    document.getElementById('pending').textContent = money(0);
+  }
 })();
 </script>
 </body></html>
