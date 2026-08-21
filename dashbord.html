@@ -302,40 +302,27 @@
 
       </div>
       
-      <div class="sidebar-divider"></div>
       
-      <!-- SECTION : MON PARCOURS -->
-      <div class="sidebar-section">
-        <div class="sidebar-label">Mon Parcours</div>
-        <a class="nav-item" id="nav-miroir" href="https://www.lemiroirnyxia.com/fr/login" target="_blank" rel="noopener">
-          <span class="nav-icon">🪞</span> Mon Espace <span class="nav-arrow">↗</span>
-        </a>
-        <a class="nav-item" id="nav-groupe" href="https://www.facebook.com/groups/cerclemagique" target="_blank" rel="noopener">
-          <span class="nav-icon">👥</span> Accès au groupe <span class="nav-arrow">↗</span>
-        </a>
-        <div class="nav-item" id="nav-messages" onclick="showPanel('messages'); loadMessages()">
-          <span class="nav-icon">💌</span> Messages du Cercle <span class="nav-arrow">›</span> <span id="unread-badge" style="display:none;background:#ff4b6e;color:#fff;border-radius:50px;font-size:10px;font-weight:700;padding:2px 7px;margin-left:4px"></span>
-        </div>
-      </div>
-
-      <div class="sidebar-divider"></div>
-
-      <!-- SECTION : OUTILS -->
       <div class="sidebar-section">
         <div class="sidebar-label">Outils</div>
-        <div class="nav-item" id="nav-studio" onclick="showPanel('studio')">
-          <span class="nav-icon">⚡</span> Cercle NyXia <span class="nav-arrow">›</span>
-        </div>
-        <div class="nav-item" id="nav-journal" onclick="showPanel('journal')">
-          <span class="nav-icon">📓</span> Mon Journal <span class="nav-arrow">›</span>
+        <div class="nav-item" id="nav-messages" onclick="showPanel('messages'); loadMessages()">
+          <span class="nav-icon">💬</span>
+          <span class="nav-text"><span class="nav-name">Messagerie</span></span>
+          <span class="nav-arrow">›</span>
         </div>
         <div class="nav-item" id="nav-medias" onclick="showPanel('medias')">
-          <span class="nav-icon">✨</span> Banque d'images - Sons et Vidéos <span class="nav-arrow">›</span>
+          <span class="nav-icon">🛠️</span>
+          <span class="nav-text"><span class="nav-name">Médias</span><span class="nav-sub">Images, sons, vidéos</span></span>
+          <span class="nav-arrow">›</span>
         </div>
+        <a class="nav-item" id="nav-repertoire" href="https://repertoire.nyxia.top/repertoire.html" target="_blank" rel="noopener">
+          <span class="nav-icon">📦</span>
+          <span class="nav-text"><span class="nav-name">Répertoire</span><span class="nav-sub">repertoire.nyxia.top</span></span>
+          <span class="nav-arrow">↗</span>
+        </a>
       </div>
-      
-      <div class="sidebar-bottom">
-        <div class="user-card">
+
+      <div class="user-card">
           <div class="user-avatar" id="sidebar-avatar">D</div>
           <div class="user-info">
             <div class="user-name" id="sidebar-username">Chargement...</div>
@@ -347,22 +334,9 @@
 
     <div class="main-content">
       <!-- Panel Chat — charge la page individuelle du personnage en iframe -->
+      <div class="panel" id="panel-promo" style="flex-direction:column;overflow:hidden"><iframe id="promo-frame" style="width:100%;height:100%;border:none"></iframe></div>
       <div class="panel active" id="panel-chat" style="flex-direction:column">
         <iframe id="agent-iframe" src="/chat-diane.html" style="width:100%;height:100%;border:none;display:block" title="Conversation"></iframe>
-      </div>
-
-      <!-- Panel Mon Espace — désactivé (ouvre en nouvel onglet) -->
-      <div class="panel" id="panel-miroir" style="flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;gap:16px">
-        <div style="font-size:40px">🪞</div>
-        <div style="color:var(--t2);font-size:16px">Mon Espace s'ouvre dans un nouvel onglet.</div>
-        <a href="https://www.lemiroirnyxia.com/fr/login" target="_blank" rel="noopener" style="padding:10px 22px;border-radius:50px;background:linear-gradient(135deg,#7B5CFF,#5A6CFF);color:#fff;text-decoration:none;font-weight:600;font-size:13px">Ouvrir Mon Espace ↗</a>
-      </div>
-
-      <!-- Panel Journal Cercle NyXia -->
-      <div class="panel" id="panel-journal" style="flex-direction:column">
-        <div style="flex:1;overflow:hidden;position:relative">
-          <iframe src="/journal-studio.html" style="width:100%;height:100%;border:none;display:block" title="Mon Journal Cercle NyXia"></iframe>
-        </div>
       </div>
 
       <!-- Panel Messagerie interne -->
@@ -1319,34 +1293,24 @@ Colle-moi un message reçu, ou dis-moi ce que tu veux publier. 🔥' }
     function escHtml(str) { var d = document.createElement('div'); d.textContent = str; return d.innerHTML }
   
 function openPromoPage(url, navId) {
-  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
-  var el = document.getElementById(navId); if (el) el.classList.add('active');
-  document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
-  var host = document.getElementById('panel-promo-host');
-  if (!host) {
-    host = document.createElement('div');
-    host.className = 'panel active';
-    host.id = 'panel-promo-host';
-    host.style.cssText = 'flex:1;display:flex;flex-direction:column;overflow:hidden';
-    host.innerHTML = '<iframe id="promo-frame" style="flex:1;width:100%;border:none;background:transparent"></iframe>';
-    var body = document.querySelector('.app-body .main-content') || document.querySelector('.app-body');
-    // find panels container
-    var panelsParent = document.querySelector('.chat-area') || document.querySelector('[class*="main"]') || document.querySelector('.app-body');
-    // Studio uses .content or similar
-    var content = document.getElementById('main-content') || document.querySelector('.content-area');
-    if (!content) {
-      // append next to other panels
-      var anyPanel = document.querySelector('.panel');
-      if (anyPanel && anyPanel.parentNode) anyPanel.parentNode.appendChild(host);
-    } else {
-      content.appendChild(host);
+      document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+      var el = document.getElementById(navId); if (el) el.classList.add('active');
+      document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+      var host = document.getElementById('panel-promo');
+      if (!host) {
+        host = document.createElement('div');
+        host.id = 'panel-promo';
+        host.className = 'panel';
+        host.style.cssText = 'flex-direction:column;flex:1;overflow:hidden';
+        host.innerHTML = '<iframe id="promo-frame" style="width:100%;height:100%;border:none;display:block;background:transparent"></iframe>';
+        var chat = document.getElementById('panel-chat');
+        if (chat && chat.parentNode) chat.parentNode.appendChild(host);
+      }
+      host.classList.add('active');
+      var frame = document.getElementById('promo-frame');
+      if (frame) frame.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + '_=' + Date.now();
+      if (typeof closeMobileMenu === 'function') closeMobileMenu();
     }
-  }
-  host.classList.add('active');
-  document.querySelectorAll('.panel').forEach(function(p){ if (p !== host) p.classList.remove('active'); });
-  var frame = document.getElementById('promo-frame');
-  if (frame) frame.src = url + (url.indexOf('?')>=0?'&':'?') + '_=' + Date.now();
-}
 
 </script>
 </body>
