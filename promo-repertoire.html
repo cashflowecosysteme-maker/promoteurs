@@ -1,5 +1,15 @@
 <!DOCTYPE html>
 <html lang="fr"><head>
+<script>
+(function(){
+  try {
+    var q = new URLSearchParams(location.search);
+    var t = q.get('t');
+    if (t) sessionStorage.setItem('nyxia_token', t);
+  } catch (e) {}
+})();
+</script>
+
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Produits à partager — Cercle</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -25,7 +35,7 @@ code{display:block;padding:10px;border-radius:10px;background:rgba(6,10,24,.6);b
 <div id="list" class="empty">Chargement…</div>
 <script>
 (async function(){
-  var token=sessionStorage.getItem('nyxia_token')||'';
+  var token=(function(){try{var q=new URLSearchParams(location.search);var t=q.get('t');if(t){sessionStorage.setItem('nyxia_token',t);return t;}}catch(e){}return sessionStorage.getItem('nyxia_token')||'';})();
   var myCode='';
 
   function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');}
