@@ -4,7 +4,7 @@
 <title>Tableau de bord — Cercle NyXia</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0A1628;--card:rgba(123,92,255,.06);--border:rgba(123,92,255,.15);--p:#7B5CFF;--p2:#5A6CFF;--t:#fff;--t2:#D6D9F0;--t3:#8891B8;--t4:#4a5278;--green:#00E676;--gold:#F4C842}
+:root{--bg:#0A1628;--card:rgba(123,92,255,.06);--border:rgba(123,92,255,.15);--p:#7B5CFF;--p2:#5A6CFF;--t:#fff;--t2:#D6D9F0;--t3:#8891B8;--green:#00E676;--gold:#F4C842}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Outfit,sans-serif;background:var(--bg);color:var(--t2);padding:28px;min-height:100vh}
 .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px}
@@ -20,16 +20,14 @@ h1{font-family:'Space Grotesk',sans-serif;font-size:22px;color:#fff;margin-botto
 .lien code{flex:1;min-width:180px;padding:12px 14px;border-radius:12px;background:rgba(15,28,63,.5);border:1px solid var(--border);color:#fff;font-size:13px;word-break:break-all}
 .btn{padding:10px 16px;border-radius:12px;border:none;cursor:pointer;font-weight:600;font-size:13px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;font-family:Outfit,sans-serif}
 .btn-ghost{background:rgba(123,92,255,.12);border:1px solid rgba(123,92,255,.25);color:#fff}
-.empty{text-align:center;color:var(--t3);padding:36px 12px;font-size:14px}
-a.btn{text-decoration:none;display:inline-block}
+.badge{display:inline-block;padding:4px 10px;border-radius:50px;background:rgba(123,92,255,.2);color:#c4b5fd;font-size:12px;margin-left:8px}
 </style>
 <script>
 var TOKEN=sessionStorage.getItem('nyxia_token')||'';
-async function api(p,m,b){var o={method:m||'GET',headers:{'Content-Type':'application/json','X-Cercle-Token':TOKEN}};if(b)o.body=JSON.stringify(b);var r=await fetch(p,o);return r.json().catch(function(){return{}})}
+async function api(p,m,b){var o={method:m||'GET',headers:{'Content-Type':'application/json','X-Cercle-Token':TOKEN}};if(b||m==='POST')o.body=JSON.stringify(Object.assign({token:TOKEN},b||{}));var r=await fetch(p,o);return r.json().catch(function(){return{}})}
 function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDigits:2,maximumFractionDigits:2})+' $'}
 </script>
 </head><body>
-
 <h1 id="hello">Bienvenue</h1>
 <p class="sub">Voici un aperçu de ton activité dans le Cercle</p>
 <div class="stats">
@@ -39,31 +37,39 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
   <div class="stat"><span>Clics</span><b id="clics">0</b></div>
 </div>
 <div class="card">
-  <div style="font-weight:600;color:#fff;margin-bottom:8px">🔗 Ton lien d’équipe</div>
+  <div style="font-weight:600;color:#fff;margin-bottom:8px">🔗 Ton lien d’équipe <span class="badge" id="codeBadge">—</span></div>
   <div class="lien">
-    <code id="lien">—</code>
+    <code id="lien">Chargement…</code>
     <button type="button" class="btn btn-ghost" id="copy">Copier</button>
   </div>
-  <p class="sub" style="margin:10px 0 0">Partage ce lien pour faire grandir ton cercle d’entraide (3 niveaux).</p>
+  <p class="sub" style="margin:10px 0 0">Ce lien contient <strong style="color:#fff">ton empreinte unique</strong>. Toute personne qui s’inscrit via ce lien rejoint <strong style="color:#fff">ton</strong> cercle.</p>
 </div>
 <script>
 (async function(){
   var d=await api('/api/check-auth','POST',{token:TOKEN});
+  if(!d.valid){ document.getElementById('lien').textContent='Session expirée — reconnecte-toi.'; return; }
   if(d.firstname) document.getElementById('hello').textContent='Bienvenue, '+d.firstname+' 👋';
-  var code=d.code||'';
-  var lien=code?('https://nyxia.top/r/'+code):'—';
-  document.getElementById('lien').textContent=lien;
-  document.getElementById('copy').onclick=function(){ if(code) navigator.clipboard.writeText(lien); };
-  try {
-    var st = await api('/api/stats','POST',{token:TOKEN});
-    document.getElementById('gains').textContent = money(st.gains||0);
-    document.getElementById('pending').textContent = money(st.pending||0);
-    document.getElementById('cercle').textContent = String(st.team_total||st.team_n1||0);
-    document.getElementById('clics').textContent = String(st.clicks||0);
-  } catch (e) {
-    document.getElementById('gains').textContent = money(0);
-    document.getElementById('pending').textContent = money(0);
+  var code=(d.code||d.affiliate_code||'').toString().trim().toUpperCase();
+  if(!code){
+    document.getElementById('lien').textContent='Code manquant — contacte le support.';
+    document.getElementById('codeBadge').textContent='sans code';
+    return;
   }
+  document.getElementById('codeBadge').textContent='code '+code;
+  var lien='https://nyxia.top/r/'+code;
+  document.getElementById('lien').textContent=lien;
+  document.getElementById('copy').onclick=function(){
+    navigator.clipboard.writeText(lien);
+    this.textContent='Copié ✓';
+    var b=this; setTimeout(function(){ b.textContent='Copier'; },1500);
+  };
+  try {
+    var st=await api('/api/stats','POST',{token:TOKEN});
+    document.getElementById('gains').textContent=money(st.gains||0);
+    document.getElementById('pending').textContent=money(st.pending||0);
+    document.getElementById('cercle').textContent=String(st.team_total||st.team_n1||0);
+    document.getElementById('clics').textContent=String(st.clicks||0);
+  } catch(e) {}
 })();
 </script>
 </body></html>
