@@ -931,7 +931,87 @@ async function handleSystemeWebhook(request, env) {
 }
 
 
+// ═══════════════ ÉRIC — Alerte inactivité 7 jours (Cron) ═══════════════
+async function ericWriteMessage(env, inbox, subject, bodyText) {
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const message = {
+    id, from: 'eric@nyxia', fromName: 'Éric',
+    to: inbox, subject: subject, body: bodyText,
+    createdAt, read: false, kind: 'alert'
+  };
+  await env.CASHFLOW_KV.put(`message:${inbox}:${createdAt}_${id}`, JSON.stringify(message));
+}
+
+function ericFirstName(fullName, email) {
+  const n = String(fullName || '').trim().split(' ')[0];
+  return n || String(email || '').split('@')[0] || 'ce membre';
+}
+
+async function runEricInactivityCheck(env) {
+  if (!env.DB || !env.CASHFLOW_KV) return { ok: false, reason: 'bindings manquants' };
+  await ensureUserColumns(env);
+
+  const rows = await env.DB.prepare(
+    `SELECT u.id, u.full_name, u.email, u.parent_id, u.last_login, u.messenger, u.last_alert, u.created_at,
+            p.full_name AS parent_name, p.email AS parent_email
+     FROM users u
+     LEFT JOIN users p ON u.parent_id = p.id
+     WHERE u.role = 'affiliate'
+       AND (
+         (u.last_login IS NOT NULL AND julianday('now') - julianday(u.last_login) >= 7)
+         OR (u.last_login IS NULL AND julianday('now') - julianday(u.created_at) >= 7)
+       )
+       AND (u.last_alert IS NULL OR julianday('now') - julianday(u.last_alert) >= 7)
+     LIMIT 200`
+  ).all();
+
+  const list = rows.results || [];
+  let alerted = 0;
+
+  for (const u of list) {
+    const prenom = ericFirstName(u.full_name, u.email);
+    const ref = u.last_login || u.created_at;
+    let days = 7;
+    try { days = Math.floor((Date.now() - new Date(ref).getTime()) / 86400000); } catch (_) {}
+
+    const readyMsg = `Coucou ${prenom} ! Je pense à toi 💜 Reviens quand tu veux dans ton espace, je suis là pour la moindre question. On avance ensemble !`;
+    const messengerLine = u.messenger
+      ? `📩 Écrire sur Messenger : ${u.messenger}`
+      : `📩 Messenger : (non renseigné par ${prenom})`;
+    const mailto = `✉️ Écrire par courriel : mailto:${u.email}?subject=${encodeURIComponent('Je pense à toi 💜')}&body=${encodeURIComponent(readyMsg)}`;
+
+    const base =
+      `${prenom} ne s'est pas connecté·e à son tableau de bord depuis ${days} jours. ` +
+      `Un petit signe de ta part peut tout changer.\n\n` +
+      `Message prêt à envoyer :\n« ${readyMsg} »\n\n` +
+      `${messengerLine}\n${mailto}\n\n` +
+      `— Éric, ton gardien du Cercle`;
+
+    const subject = `💜 ${prenom} s'est éloigné·e (${days} j sans connexion)`;
+
+    // 1) Super Admin
+    await ericWriteMessage(env, '__admin__',
+      subject + (u.parent_name ? ` — parrain : ${u.parent_name}` : ' — sans parrain'), base);
+
+    // 2) Parrain direct
+    if (u.parent_email) {
+      await ericWriteMessage(env, String(u.parent_email).toLowerCase().trim(), subject, base);
+    }
+
+    // Marque l'alerte → pas de relance avant 7 jours
+    try { await env.DB.prepare(`UPDATE users SET last_alert = datetime('now') WHERE id = ?`).bind(u.id).run(); } catch (_) {}
+    alerted++;
+  }
+
+  return { ok: true, checked: list.length, alerted };
+}
+
 export default {
+  // Cron quotidien : Éric vérifie les inactifs et alerte
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runEricInactivityCheck(env));
+  },
   async fetch(request, env) {
     
     try { if (env.DB) await ensureSchema(env); } catch (e) { console.error("schema", e); }
@@ -940,6 +1020,14 @@ const url = new URL(request.url);
 
     if (path === '/' || path === '') {
       return env.ASSETS.fetch(new Request(new URL('/index.html', request.url), request));
+    }
+    // Éric — déclenchement manuel pour TESTER : /api/eric/run?key=TA_CLE
+    if (path === '/api/eric/run') {
+      if (!env.ERIC_TRIGGER_KEY || url.searchParams.get('key') !== env.ERIC_TRIGGER_KEY) {
+        return json({ error: 'Clé requise ou invalide.' }, 403);
+      }
+      const res = await runEricInactivityCheck(env);
+      return json(res);
     }
     // Lien de création d'équipe / parrainage → inscription
     if (path.startsWith('/r/')) {
