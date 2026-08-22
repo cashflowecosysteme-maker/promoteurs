@@ -47,11 +47,15 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
 <script>
 (async function(){
   var d=await api('/api/check-auth','POST',{token:TOKEN});
-  if(!d.valid){ document.getElementById('lien').textContent='Session expirée — reconnecte-toi.'; return; }
+  if(!d.valid){ document.getElementById('lien').textContent='Session expirée — déconnecte-toi puis reconnecte-toi.'; return; }
   if(d.firstname) document.getElementById('hello').textContent='Bienvenue, '+d.firstname+' 👋';
   var code=(d.code||d.affiliate_code||'').toString().trim().toUpperCase();
   if(!code){
-    document.getElementById('lien').textContent='Code manquant — contacte le support.';
+    d=await api('/api/ensure-code','POST',{token:TOKEN});
+    code=(d.code||d.affiliate_code||'').toString().trim().toUpperCase();
+  }
+  if(!code){
+    document.getElementById('lien').textContent='Code manquant. Déconnecte-toi, reconnecte-toi. Si ça continue : compte sans ligne D1 (email).';
     document.getElementById('codeBadge').textContent='sans code';
     return;
   }
