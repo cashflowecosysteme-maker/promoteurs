@@ -1,5 +1,15 @@
 <!DOCTYPE html>
 <html lang="fr"><head>
+<script>
+(function(){
+  try {
+    var q = new URLSearchParams(location.search);
+    var t = q.get('t');
+    if (t) sessionStorage.setItem('nyxia_token', t);
+  } catch (e) {}
+})();
+</script>
+
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tableau de bord — Cercle NyXia</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -23,7 +33,14 @@ h1{font-family:'Space Grotesk',sans-serif;font-size:22px;color:#fff;margin-botto
 .badge{display:inline-block;padding:4px 10px;border-radius:50px;background:rgba(123,92,255,.2);color:#c4b5fd;font-size:12px;margin-left:8px}
 </style>
 <script>
-var TOKEN=sessionStorage.getItem('nyxia_token')||'';
+var TOKEN=(function(){
+  try {
+    var q=new URLSearchParams(location.search);
+    var t=q.get('t');
+    if(t){ sessionStorage.setItem('nyxia_token', t); return t; }
+  } catch(e) {}
+  return sessionStorage.getItem('nyxia_token')||'';
+})();
 async function api(p,m,b){var o={method:m||'GET',headers:{'Content-Type':'application/json','X-Cercle-Token':TOKEN}};if(b||m==='POST')o.body=JSON.stringify(Object.assign({token:TOKEN},b||{}));var r=await fetch(p,o);return r.json().catch(function(){return{}})}
 function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDigits:2,maximumFractionDigits:2})+' $'}
 </script>
