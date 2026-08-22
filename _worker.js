@@ -278,6 +278,12 @@ function isSuperAdminProduct(row) {
 }
 
 
+async function ensureUserColumns(env) {
+  if (!env.DB) return;
+  try { await env.DB.prepare(`ALTER TABLE users ADD COLUMN last_login TEXT`).run(); } catch (_) {}
+  try { await env.DB.prepare(`ALTER TABLE users ADD COLUMN messenger TEXT`).run(); } catch (_) {}
+  try { await env.DB.prepare(`ALTER TABLE users ADD COLUMN last_alert TEXT`).run(); } catch (_) {}
+}
 async function ensureMarketplacePromoColumns(env) {
   if (!env.DB) return;
   try { await env.DB.prepare(`ALTER TABLE marketplace_products ADD COLUMN promo_guide TEXT`).run(); } catch (_) {}
@@ -1126,6 +1132,7 @@ async function handleLogin(request, env) {
   if (env.DB) {
     try {
       await ensureSchema(env);
+      await ensureUserColumns(env);
       const host = (request.headers.get('Host') || '').toLowerCase();
       // promoteurs.* → privilégier compte affiliate ; sinon privilégier admin
       const preferPromo = host.includes('promoteurs');
@@ -1141,6 +1148,7 @@ async function handleLogin(request, env) {
       for (const user of list) {
         if (await verifyPasswordAffil(password, user.password_hash)) {
           const token = randomToken();
+          try { await env.DB.prepare(`UPDATE users SET last_login = datetime('now') WHERE id = ?`).bind(user.id).run(); } catch (e) {}
           let affCode = (user.affiliate_code || '').toString().trim().toUpperCase();
           if (!affCode) {
             affCode = await generateAffiliateCode(env);
