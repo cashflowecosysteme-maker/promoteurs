@@ -946,6 +946,7 @@ const url = new URL(request.url);
       if (path === '/api/login' && request.method === 'POST') return await handleLogin(request, env);
       if (path === '/api/ref-resolve' && request.method === 'GET') return await handleResolveRef(request, env);
       if (path === '/api/check-auth' && request.method === 'POST') return await handleCheckAuth(request, env);
+      if (path === '/api/ensure-code' && request.method === 'POST') return await handleEnsureCode(request, env);
       if (path === '/api/logout' && request.method === 'POST') return await handleLogout(request, env);
       if ((path === '/api/repertoire' || path === '/api/marketplace/public') && request.method === 'GET') return await handlePublicRepertoire(request, env);
       if (path === '/api/product' && request.method === 'GET') return await handleGetProduct(request, env, url);
@@ -1190,64 +1191,103 @@ async function handleLogin(request, env) {
 async function handleCheckAuth(request, env) {
   const body = await request.json().catch(() => ({}));
   const token = body.token || request.headers.get('X-Cercle-Token') || null;
-  if (!token || !env.CASHFLOW_KV) return json({ valid: false });
+  if (!token || !env.CASHFLOW_KV) return json({ valid: false, error: 'no_token' });
   const raw = await env.CASHFLOW_KV.get('session:' + token);
-  if (!raw) return json({ valid: false });
+  if (!raw) return json({ valid: false, error: 'session_expired' });
   let session;
-  try { session = JSON.parse(raw); } catch (_) { return json({ valid: false }); }
+  try { session = JSON.parse(raw); } catch (_) { return json({ valid: false, error: 'bad_session' }); }
 
-  let code = (session.code || session.affiliate_code || '').toString().trim().toUpperCase();
-  const userId = session.userId || session.id || null;
-  const email = (session.email || '').toLowerCase();
+  let code = String(session.code || session.affiliate_code || '').trim().toUpperCase();
+  let userId = session.userId || session.id || null;
+  let email = String(session.email || '').trim().toLowerCase();
+  let role = session.role || '';
+  let firstname = session.firstname || '';
+  let paypal = session.paypal || '';
 
-  // Toujours recharger le code depuis D1 (source de vérité)
-  if (env.DB && (userId || email)) {
+  if (env.DB) {
     try {
+      await ensureSchema(env);
       let row = null;
       if (userId) {
         row = await env.DB.prepare(
-          `SELECT id, affiliate_code, role, full_name, paypal_email, email FROM users WHERE id = ?`
+          `SELECT id, email, full_name, role, affiliate_code, paypal_email FROM users WHERE id = ?`
         ).bind(userId).first();
       }
       if (!row && email) {
         row = await env.DB.prepare(
-          `SELECT id, affiliate_code, role, full_name, paypal_email, email FROM users WHERE email = ? ORDER BY CASE role WHEN 'affiliate' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END LIMIT 1`
+          `SELECT id, email, full_name, role, affiliate_code, paypal_email FROM users WHERE lower(email) = ? ORDER BY CASE role WHEN 'affiliate' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END LIMIT 1`
         ).bind(email).first();
       }
+      // Dernier recours : chercher par code déjà en session
+      if (!row && code) {
+        row = await env.DB.prepare(
+          `SELECT id, email, full_name, role, affiliate_code, paypal_email FROM users WHERE affiliate_code = ? LIMIT 1`
+        ).bind(code).first();
+      }
+
       if (row) {
-        code = (row.affiliate_code || '').toString().trim().toUpperCase();
-        // Si pas de code → en créer un unique et sauver
+        userId = row.id;
+        email = row.email || email;
+        role = row.role || role;
+        firstname = firstname || String(row.full_name || '').split(' ')[0] || '';
+        paypal = row.paypal_email || paypal;
+        code = String(row.affiliate_code || '').trim().toUpperCase();
+
         if (!code) {
           code = await generateAffiliateCode(env);
           await env.DB.prepare(
-            `UPDATE users SET affiliate_code = ?, updated_at = datetime('now') WHERE id = ?`
-          ).bind(code, row.id).run();
+            `UPDATE users SET affiliate_code = ?, updated_at = ? WHERE id = ?`
+          ).bind(code, new Date().toISOString(), row.id).run();
         }
-        session.userId = row.id;
-        session.role = row.role || session.role;
-        session.code = code;
-        session.affiliate_code = code;
-        session.paypal = row.paypal_email || session.paypal || '';
-        session.firstname = session.firstname || (row.full_name || '').split(' ')[0] || '';
-        session.email = row.email || session.email;
-        await env.CASHFLOW_KV.put('session:' + token, JSON.stringify(session), { expirationTtl: SESSION_TTL });
+      } else if (email && !code) {
+        // Session sans ligne D1 : créer le compte affiliate minimal avec code
+        code = await generateAffiliateCode(env);
+        userId = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const tempPass = await hashPasswordAffil(crypto.randomUUID().slice(0, 12));
+        await env.DB.prepare(
+          `INSERT INTO users (id, email, password_hash, full_name, role, affiliate_code, parent_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'affiliate', ?, NULL, ?, ?)`
+        ).bind(userId, email, tempPass, firstname || email.split('@')[0], code, now, now).run();
+        role = 'affiliate';
       }
     } catch (e) {
       console.error('check-auth D1', e);
     }
   }
 
+  // Toujours persister le code en session s'il existe
+  if (code) {
+    session.userId = userId;
+    session.email = email;
+    session.role = role;
+    session.code = code;
+    session.affiliate_code = code;
+    session.firstname = firstname;
+    session.paypal = paypal;
+    try {
+      await env.CASHFLOW_KV.put('session:' + token, JSON.stringify(session), { expirationTtl: SESSION_TTL });
+    } catch (_) {}
+  }
+
   return json({
     valid: true,
-    email: session.email || '',
-    firstname: session.firstname || '',
-    role: session.role || '',
+    email: email || '',
+    firstname: firstname || '',
+    role: role || '',
     code: code || '',
     affiliate_code: code || '',
-    paypal: session.paypal || '',
-    userId: session.userId || null
+    paypal: paypal || '',
+    userId: userId || null,
+    has_code: !!code
   });
 }
+
+async function handleEnsureCode(request, env) {
+  // Alias explicite : force l'attribution du code
+  return handleCheckAuth(request, env);
+}
+
 
 async function handleLogout(request, env) {
   const body = await request.json().catch(() => ({}));
