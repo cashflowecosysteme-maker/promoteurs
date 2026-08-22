@@ -25,3 +25,6 @@ index_name = "univers-livres"
 
 [vars]
 SITE_URL = "https://promoteurs.nyxia.top"
+
+[triggers]
+crons = ["0 13 * * *"]
