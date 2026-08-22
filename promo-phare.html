@@ -1,5 +1,15 @@
 <!DOCTYPE html>
 <html lang="fr"><head>
+<script>
+(function(){
+  try {
+    var q = new URLSearchParams(location.search);
+    var t = q.get('t');
+    if (t) sessionStorage.setItem('nyxia_token', t);
+  } catch (e) {}
+})();
+</script>
+
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Produit phare — NyXia</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -29,7 +39,7 @@ code{flex:1;min-width:180px;padding:12px 14px;border-radius:12px;background:rgba
   <a class="btn" id="open" href="#" target="_blank" rel="noopener">Ouvrir mon lien</a>
 </div>
 <script>
-var TOKEN=sessionStorage.getItem('nyxia_token')||'';
+var TOKEN=(function(){try{var q=new URLSearchParams(location.search);var t=q.get('t');if(t){sessionStorage.setItem('nyxia_token',t);return t;}}catch(e){}return sessionStorage.getItem('nyxia_token')||'';})();
 (async function(){
   var r=await fetch('/api/check-auth',{method:'POST',headers:{'Content-Type':'application/json','X-Cercle-Token':TOKEN},body:JSON.stringify({token:TOKEN})});
   var d=await r.json().catch(function(){return{}});
