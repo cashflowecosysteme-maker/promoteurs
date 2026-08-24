@@ -53,6 +53,10 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
   <div class="stat"><span>Ton cercle</span><b id="cercle">0</b></div>
   <div class="stat"><span>Clics</span><b id="clics">0</b></div>
 </div>
+<div class="card" id="byProductCard" style="display:none">
+  <h2 style="margin:0 0 10px;font-size:15px">Mes gains, produit par produit</h2>
+  <div id="byProductList" style="display:flex;flex-direction:column;gap:8px"></div>
+</div>
 <div class="card">
   <div style="font-weight:600;color:#fff;margin-bottom:8px">🔗 Ton lien d’équipe <span class="badge" id="codeBadge">—</span></div>
   <div class="lien">
@@ -77,7 +81,7 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
     return;
   }
   document.getElementById('codeBadge').textContent='code '+code;
-  var lien='https://nyxia.top/r/'+code;
+  var lien='https://repertoire.nyxia.top/r/'+code;
   document.getElementById('lien').textContent=lien;
   document.getElementById('copy').onclick=function(){
     navigator.clipboard.writeText(lien);
@@ -88,6 +92,16 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
     var st=await api('/api/stats','POST',{token:TOKEN});
     document.getElementById('gains').textContent=money(st.gains||0);
     document.getElementById('pending').textContent=money(st.pending||0);
+    var byP=st.gains_by_product||[];
+    if(byP.length>1){
+      document.getElementById('byProductCard').style.display='block';
+      document.getElementById('byProductList').innerHTML=byP.map(function(p){
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:rgba(123,92,255,.06);border-radius:10px">'
+          +'<span>'+(p.title||'Produit')+' <span style="opacity:.6;font-size:12px">('+p.ventes+' vente'+(p.ventes>1?'s':'')+')</span></span>'
+          +'<span><b>'+money(p.paid)+'</b>'+(p.pending>0?' <span style="color:var(--gold);font-size:12px">+'+money(p.pending)+' en attente</span>':'')+'</span>'
+          +'</div>';
+      }).join('');
+    }
     document.getElementById('cercle').textContent=String(st.team_total||st.team_n1||0);
     document.getElementById('clics').textContent=String(st.clicks||0);
   } catch(e) {}
