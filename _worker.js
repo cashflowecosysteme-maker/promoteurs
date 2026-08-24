@@ -429,17 +429,38 @@ async function handleStats(request, env) {
     }
   } catch (e) { console.error('stats clicks', e); }
 
-  // Gains : table commissions si existe, sinon 0
-  let gains = 0, pending = 0;
+  // Gains : table commissions (schéma partagé — colonne beneficiary_id + product_id)
+  let gains = 0, pending = 0, gains_by_product = [];
   try {
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS commissions (
-      id TEXT PRIMARY KEY, user_id TEXT, amount REAL DEFAULT 0, status TEXT DEFAULT 'pending', created_at TEXT
+      id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, seller_id TEXT,
+      beneficiary_id TEXT, beneficiary_code TEXT, level INTEGER DEFAULT 1,
+      amount REAL DEFAULT 0, currency TEXT DEFAULT 'CAD', status TEXT DEFAULT 'pending',
+      buyer_email TEXT, ref_code TEXT, source TEXT, created_at TEXT, paid_at TEXT
     )`).run();
     if (userId) {
-      const g = await env.DB.prepare(`SELECT COALESCE(SUM(amount),0) as s FROM commissions WHERE user_id = ? AND status = 'paid'`).bind(userId).first();
-      const pe = await env.DB.prepare(`SELECT COALESCE(SUM(amount),0) as s FROM commissions WHERE user_id = ? AND status = 'pending'`).bind(userId).first();
+      const g = await env.DB.prepare(`SELECT COALESCE(SUM(amount),0) as s FROM commissions WHERE beneficiary_id = ? AND status = 'paid'`).bind(userId).first();
+      const pe = await env.DB.prepare(`SELECT COALESCE(SUM(amount),0) as s FROM commissions WHERE beneficiary_id = ? AND status = 'pending'`).bind(userId).first();
       gains = Number(g && g.s || 0);
       pending = Number(pe && pe.s || 0);
+
+      // Détail par produit : sait-on d'où vient chaque montant, quand on en a plusieurs
+      const rows = await env.DB.prepare(
+        `SELECT c.product_id AS product_id,
+                COALESCE(p.title, 'Produit supprimé') AS title,
+                COALESCE(SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END), 0) AS paid,
+                COALESCE(SUM(CASE WHEN c.status = 'pending' THEN c.amount ELSE 0 END), 0) AS pending,
+                COUNT(*) AS ventes
+         FROM commissions c
+         LEFT JOIN marketplace_products p ON p.id = c.product_id
+         WHERE c.beneficiary_id = ?
+         GROUP BY c.product_id
+         ORDER BY paid DESC`
+      ).bind(userId).all();
+      gains_by_product = (rows.results || []).map(r => ({
+        product_id: r.product_id, title: r.title,
+        paid: Number(r.paid || 0), pending: Number(r.pending || 0), ventes: Number(r.ventes || 0)
+      }));
     }
   } catch (e) { console.error('stats gains', e); }
 
@@ -459,7 +480,7 @@ async function handleStats(request, env) {
     products_total, products_active, products_draft,
     team_n1, team_total,
     clicks,
-    gains, pending,
+    gains, pending, gains_by_product,
     users_total, affiliates_total, admins_total,
     code: code || null,
     userId: userId || null
