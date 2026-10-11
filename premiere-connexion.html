@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fr-CA">
+<head>
+<meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Première connexion | Cercle d’entraide NyXia</title>
+<link rel="icon" href="/FavIcon.png">
+<style>
+:root{color-scheme:dark;--night:#060a18;--violet:#7b5cff;--lavender:#a78bfa;--gold:#f2c66d}
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#f4efff;background:radial-gradient(ellipse at 50% 5%,#282057 0,transparent 45%),radial-gradient(ellipse at 15% 90%,#171235 0,transparent 40%),var(--night)}
+main{width:min(100%,460px);border:1px solid #594a89;border-radius:22px;padding:clamp(24px,6vw,40px);background:rgba(12,12,31,.94);box-shadow:0 22px 70px #0009,0 0 45px #7b5cff21;text-align:center}
+.logo{width:88px;height:88px;object-fit:contain;margin-bottom:8px}h1{font:700 clamp(26px,5vw,32px)/1.15 Georgia,serif;margin:0 0 12px;color:var(--gold)}p{color:#d3c8ea;margin:0 0 24px}form{text-align:left}label{font-size:14px;display:block;margin:14px 0 7px;font-weight:650}input{width:100%;min-height:48px;border-radius:10px;border:1px solid #655583;background:#121229;color:white;padding:12px 14px;font-size:16px}input:focus{outline:2px solid var(--lavender);outline-offset:2px}button{width:100%;min-height:52px;margin-top:22px;border:1px solid #ffe5a4;border-radius:11px;background:linear-gradient(115deg,#a66b10,#f0c258 36%,#fff0aa 55%,#bd7b13);color:#110c20;font:800 16px system-ui;cursor:pointer}button:disabled{opacity:.65;cursor:wait}.hint{font-size:13px;color:#ac9cc8;margin-top:8px}.notice{margin:18px 0 0;border-radius:10px;padding:12px;text-align:left;display:none}.notice.error{display:block;background:#48202b;color:#ffdae1}.notice.success{display:block;background:#15372f;color:#d9fff2}a{color:#d3bdff}footer{margin-top:22px;font-size:14px;color:#aea0ca}
+</style>
+</head>
+<body>
+<main>
+<img class="logo" src="/NyXia.png" alt="NyXia">
+<h1>Bienvenue dans le Cercle d’entraide 💜</h1>
+<p>Choisis ton mot de passe pour activer ton accès gratuit au Portail Promoteurs.</p>
+<form id="firstForm" novalidate>
+<label for="password">Mon mot de passe</label><input type="password" id="password" autocomplete="new-password" minlength="10" required placeholder="10 caractères minimum">
+<label for="confirm">Confirmer mon mot de passe</label><input type="password" id="confirm" autocomplete="new-password" minlength="10" required placeholder="Répète ton mot de passe">
+<div class="hint">Utilise un mot de passe unique d’au moins 10 caractères.</div>
+<button type="submit" id="submitBtn">Activer mon accès gratuit</button>
+<div id="status" class="notice" role="status" aria-live="polite"></div>
+</form>
+<footer>Déjà membre ? <a href="/login.html">Me connecter</a></footer>
+</main>
+<script>
+(function(){
+  'use strict';
+  const form=document.getElementById('firstForm'), status=document.getElementById('status'), btn=document.getElementById('submitBtn');
+  const url=new URL(location.href); const token=url.searchParams.get('token')||url.searchParams.get('sc')||'';
+  if(token) history.replaceState(null, '', '/premiere-connexion.html');
+  function message(text,kind){status.textContent=text;status.className='notice '+kind;}
+  if(!token){form.hidden=true;message('Ce lien personnel est absent ou incomplet. Utilise le lien d’activation reçu dans ton courriel.','error');}
+  form.addEventListener('submit',async function(e){
+    e.preventDefault();
+    const pwd=document.getElementById('password').value, confirm=document.getElementById('confirm').value;
+    if(pwd.length<10){message('Choisis un mot de passe d’au moins 10 caractères.','error');return;}
+    if(pwd!==confirm){message('Les deux mots de passe ne correspondent pas.','error');return;}
+    btn.disabled=true;btn.textContent='Activation en cours…';status.className='notice';status.textContent='';
+    try{
+      const res=await fetch('/api/first-connection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password:pwd})});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||data.error||!data.success){throw new Error(data.error||'L’activation n’est pas disponible pour le moment. Réessaie plus tard.');}
+      message('Ton mot de passe est créé ! Tu peux maintenant te connecter.','success');form.reset();form.querySelectorAll('input').forEach(el=>el.disabled=true);btn.textContent='Accéder à ma connexion';btn.disabled=false;btn.type='button';btn.onclick=()=>{location.href='/login.html'};
+    }catch(err){message(err.message||'Impossible de terminer l’activation.','error');btn.disabled=false;btn.textContent='Activer mon accès gratuit';}
+  });
+})();
+</script>
+</body></html>

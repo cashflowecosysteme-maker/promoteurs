@@ -848,6 +848,8 @@ async function handleSignup(request, env) {
 
 async function handleSystemeWebhook(request, env) {
   const secret = env.SYSTEME_WEBHOOK_SECRET || '';
+  if (!secret) return json({ error: 'Webhook non configuré.' }, 503);
+  if (!env.RESEND_API_KEY || !env.PROMO_FROM_EMAIL || !env.CASHFLOW_KV) return json({ error: 'Activation courriel non configurée.' }, 503);
   if (secret) {
     const hdr = request.headers.get('X-Webhook-Secret') || request.headers.get('X-Systeme-Secret') || '';
     if (hdr !== secret) return json({ error: 'Secret invalide.' }, 401);
@@ -948,9 +950,61 @@ async function handleSystemeWebhook(request, env) {
     }));
   }
 
+  await sendPromoActivation(env, userId, email, fullName);
   return json({ success: true, userId, email, code: affiliateCode, role: 'affiliate' });
 }
 
+
+// ── Activation sécurisée du compte Promoteur (inscription Systeme.io) ──
+const PROMO_ACTIVATION_TTL = 48 * 60 * 60;
+async function promoTokenHash(token) {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return [...new Uint8Array(bytes)].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+async function sendPromoActivation(env, userId, email, fullName) {
+  if (!env.CASHFLOW_KV || !env.RESEND_API_KEY || !env.PROMO_FROM_EMAIL) {
+    throw new Error('CASHFLOW_KV, RESEND_API_KEY et PROMO_FROM_EMAIL doivent être configurés.');
+  }
+  const token = randomToken();
+  const key = 'promo_activation:' + await promoTokenHash(token);
+  await env.CASHFLOW_KV.put(key, JSON.stringify({ userId, email }), { expirationTtl: PROMO_ACTIVATION_TTL });
+  const link = (env.SITE_URL || 'https://promoteurs.nyxia.top').replace(/\/$/, '') +
+    '/premiere-connexion.html?token=' + encodeURIComponent(token);
+  const subject = '💜 Active ton accès gratuit au Cercle d’entraide NyXia';
+  const safeName = String(fullName || '').split(' ')[0].replace(/[<>&"']/g, '').slice(0, 60);
+  const message = `Bonjour ${safeName || 'à toi'} !\n\nBienvenue dans le Cercle d’entraide NyXia.\n\nChoisis ton mot de passe personnel grâce à ce lien sécurisé (valable 48 heures) :\n${link}\n\nAprès l’activation, connecte-toi à ton tableau de bord : https://promoteurs.nyxia.top/login.html\n\nDiane et l’équipe NyXia 💜`;
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: env.PROMO_FROM_EMAIL, to: [email], subject, text: message })
+  });
+  if (!response.ok) {
+    await env.CASHFLOW_KV.delete(key);
+    throw new Error('Le service de courriel a refusé l’envoi (HTTP ' + response.status + ').');
+  }
+}
+async function handlePromoFirstConnection(request, env) {
+  if (!env.DB || !env.CASHFLOW_KV) return json({ error: 'Service indisponible.' }, 503);
+  const body = await request.json().catch(() => ({}));
+  const token = String(body.token || '');
+  const password = String(body.password || '');
+  if (token.length < 32 || token.length > 200 || password.length < 10 || password.length > 1024) {
+    return json({ error: 'Lien invalide ou mot de passe trop court (10 caractères minimum).' }, 400);
+  }
+  const key = 'promo_activation:' + await promoTokenHash(token);
+  const raw = await env.CASHFLOW_KV.get(key);
+  if (!raw) return json({ error: 'Lien expiré ou déjà utilisé. Contacte l’équipe NyXia pour recevoir un nouveau lien.' }, 400);
+  let record;
+  try { record = JSON.parse(raw); } catch (_) { return json({ error: 'Lien invalide.' }, 400); }
+  const user = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND email = ? AND role = 'affiliate' LIMIT 1")
+    .bind(record.userId, record.email).first();
+  if (!user) return json({ error: 'Compte promoteur introuvable.' }, 404);
+  const hash = await hashPasswordAffil(password);
+  await env.DB.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ? AND role = 'affiliate'")
+    .bind(hash, new Date().toISOString(), user.id).run();
+  await env.CASHFLOW_KV.delete(key);
+  return json({ success: true });
+}
 
 // ═══════════════ ÉRIC — Alerte inactivité 7 jours (Cron) ═══════════════
 async function ericWriteMessage(env, inbox, subject, bodyText) {
@@ -1057,6 +1111,8 @@ const url = new URL(request.url);
     }
 
     try {
+      if (path === '/api/webhooks/systeme' && request.method === 'POST') return await handleSystemeWebhook(request, env);
+      if (path === '/api/first-connection' && request.method === 'POST') return await handlePromoFirstConnection(request, env);
       if (path === '/api/signup' && request.method === 'POST') return await handleSignup(request, env);
       if (path === '/api/login' && request.method === 'POST') return await handleLogin(request, env);
       if (path === '/api/ref-resolve' && request.method === 'GET') return await handleResolveRef(request, env);
