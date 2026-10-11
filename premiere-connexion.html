@@ -43,7 +43,8 @@ main{width:min(100%,460px);border:1px solid #594a89;border-radius:22px;padding:c
       const res=await fetch('/api/first-connection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password:pwd})});
       const data=await res.json().catch(()=>({}));
       if(!res.ok||data.error||!data.success){throw new Error(data.error||'L’activation n’est pas disponible pour le moment. Réessaie plus tard.');}
-      message('Ton mot de passe est créé ! Tu peux maintenant te connecter.','success');form.reset();form.querySelectorAll('input').forEach(el=>el.disabled=true);btn.textContent='Accéder à ma connexion';btn.disabled=false;btn.type='button';btn.onclick=()=>{location.href='/login.html'};
+      message('Ton mot de passe est créé ! Tu vas être redirigé vers la page de connexion…','success');form.reset();form.querySelectorAll('input').forEach(el=>el.disabled=true);btn.textContent='Accéder à ma connexion';btn.disabled=false;btn.type='button';btn.onclick=()=>{location.replace('/login.html')};
+      setTimeout(()=>{location.replace('/login.html');},1200);
     }catch(err){message(err.message||'Impossible de terminer l’activation.','error');btn.disabled=false;btn.textContent='Activer mon accès gratuit';}
   });
 })();
