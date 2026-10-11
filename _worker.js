@@ -987,7 +987,7 @@ async function prepareSystemeActivation(env, userId, email, systemeContactId) {
   await env.CASHFLOW_KV.put(key, JSON.stringify({ userId, email }), { expirationTtl: PROMO_ACTIVATION_TTL });
   try {
     const updated = await fetch(`${apiBase}/contacts/${encodeURIComponent(systemeContactId)}`, {
-      method: 'PATCH', headers,
+      method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/merge-patch+json' },
       body: JSON.stringify({ fields: [{ slug: fieldSlug, value: link }] })
     });
     if (!updated.ok) throw new Error('Mise à jour du champ d’activation refusée (HTTP '+updated.status+')');
