@@ -860,7 +860,7 @@ async function handleSystemeWebhook(request, env) {
   // Systeme.io : le courriel est souvent dans data.customer.email
   const data = body.data || body.payload || body;
   const customer = (data && data.customer) || body.customer || (data && data.contact) || body.contact || {};
-  const systemeContactId = String((customer && customer.id) || (data && data.contactId) || body.contactId || '').trim();
+  const systemeContactId = String((customer && customer.id) || (data && (data.contactId || data.contact_id || data.id)) || body.contactId || body.contact_id || '').trim();
   const email = String(
     (customer && customer.email) ||
     body.email ||
@@ -971,11 +971,30 @@ async function promoTokenHash(token) {
 }
 // Le webhook d'inscription crée le compte, renseigne le lien dans Systeme.io,
 // puis ajoute le tag déclencheur. Un SEUL courriel Systeme.io, après mise à jour.
+async function resolveSystemeContactId(env, email, candidate) {
+  const headers = { 'X-API-Key': String(env.SYSTEME_API_KEY), Accept: 'application/json' };
+  if (/^\d+$/.test(candidate)) {
+    const response = await fetch('https://api.systeme.io/api/contacts/' + candidate, { headers });
+    if (response.ok) {
+      const contact = await response.json();
+      if (String(contact.email || '').trim().toLowerCase() === email) return String(contact.id);
+    } else if (response.status !== 404) {
+      throw new Error('Lecture du contact Systeme.io refusée (HTTP ' + response.status + ')');
+    }
+  }
+  const response = await fetch('https://api.systeme.io/api/contacts?email=' + encodeURIComponent(email), { headers });
+  if (!response.ok) throw new Error('Recherche du contact Systeme.io refusée (HTTP ' + response.status + ')');
+  const payload = await response.json();
+  const contacts = Array.isArray(payload) ? payload : payload.items || payload['hydra:member'] || payload.contacts || [];
+  const contact = contacts.find(item => String(item.email || '').trim().toLowerCase() === email);
+  if (!contact || !/^\d+$/.test(String(contact.id))) throw new Error('Contact Systeme.io introuvable pour le courriel reçu');
+  return String(contact.id);
+}
 async function prepareSystemeActivation(env, userId, email, systemeContactId) {
   if (!env.CASHFLOW_KV || !env.SYSTEME_API_KEY || !env.SYSTEME_RESET_TAG_ID) {
     throw new Error('Variables Systeme.io / KV manquantes');
   }
-  if (!/^\d+$/.test(systemeContactId)) { console.error('PROMO_ACTIVATION_ERROR', 'contact_id_missing'); throw new Error('Identifiant contact Systeme.io absent du webhook optin'); }
+  systemeContactId = await resolveSystemeContactId(env, email, systemeContactId);
   const tagId = String(env.SYSTEME_RESET_TAG_ID).replace(/[“”"']/g, '').trim();
   if (!/^\d+$/.test(tagId)) throw new Error('SYSTEME_RESET_TAG_ID incorrect');
   const fieldSlug = 'lien_activation_nyxia';
