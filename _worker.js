@@ -849,16 +849,17 @@ async function handleSignup(request, env) {
 async function handleSystemeWebhook(request, env) {
   const secret = env.SYSTEME_WEBHOOK_SECRET || '';
   if (!secret) return json({ error: 'Webhook non configuré.' }, 503);
-  if (!env.RESEND_API_KEY || !env.PROMO_FROM_EMAIL || !env.CASHFLOW_KV) return json({ error: 'Activation courriel non configurée.' }, 503);
+  if (!env.SYSTEME_API_KEY || !env.SYSTEME_RESET_TAG_ID || !env.CASHFLOW_KV) return json({ error: 'Raccordement Systeme.io incomplet.' }, 503);
   if (secret) {
-    const hdr = request.headers.get('X-Webhook-Secret') || request.headers.get('X-Systeme-Secret') || '';
-    if (hdr !== secret) return json({ error: 'Secret invalide.' }, 401);
+    const suppliedSecret = request.headers.get('X-Webhook-Secret') || request.headers.get('X-Systeme-Secret') || new URL(request.url).searchParams.get('secret') || '';
+    if (suppliedSecret !== secret) return json({ error: 'Secret invalide.' }, 401);
   }
 
   const body = await request.json().catch(() => ({}));
   // Systeme.io : le courriel est souvent dans data.customer.email
   const data = body.data || body.payload || body;
   const customer = (data && data.customer) || body.customer || (data && data.contact) || body.contact || {};
+  const systemeContactId = String((customer && customer.id) || (data && data.contactId) || body.contactId || '').trim();
   const email = String(
     (customer && customer.email) ||
     body.email ||
@@ -950,8 +951,13 @@ async function handleSystemeWebhook(request, env) {
     }));
   }
 
-  await sendPromoActivation(env, userId, email, fullName);
-  return json({ success: true, userId, email, code: affiliateCode, role: 'affiliate' });
+  try {
+    await prepareSystemeActivation(env, userId, email, systemeContactId);
+  } catch (e) {
+    console.error('SYSTEME_ACTIVATION_FAILED', String(e && e.message || e));
+    return json({ error: 'Compte créé, mais activation Systeme.io non déclenchée.', detail: String(e && e.message || e) }, 502);
+  }
+  return json({ success: true, userId, email, code: affiliateCode, role: 'affiliate', activation: 'systeme_tag' });
 }
 
 
@@ -961,26 +967,37 @@ async function promoTokenHash(token) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
   return [...new Uint8Array(bytes)].map(v => v.toString(16).padStart(2, '0')).join('');
 }
-async function sendPromoActivation(env, userId, email, fullName) {
-  if (!env.CASHFLOW_KV || !env.RESEND_API_KEY || !env.PROMO_FROM_EMAIL) {
-    throw new Error('CASHFLOW_KV, RESEND_API_KEY et PROMO_FROM_EMAIL doivent être configurés.');
+// Le webhook d'inscription crée le compte, renseigne le lien dans Systeme.io,
+// puis ajoute le tag déclencheur. Un SEUL courriel Systeme.io, après mise à jour.
+async function prepareSystemeActivation(env, userId, email, systemeContactId) {
+  if (!env.CASHFLOW_KV || !env.SYSTEME_API_KEY || !env.SYSTEME_RESET_TAG_ID) {
+    throw new Error('Variables Systeme.io / KV manquantes');
   }
+  if (!/^\d+$/.test(systemeContactId)) throw new Error('Identifiant contact Systeme.io absent du webhook optin');
+  const tagId = String(env.SYSTEME_RESET_TAG_ID).replace(/[“”"']/g, '').trim();
+  if (!/^\d+$/.test(tagId)) throw new Error('SYSTEME_RESET_TAG_ID incorrect');
+  const fieldSlug = 'lien_activation_nyxia';
+  if (!/^[a-zA-Z0-9_\-]+$/.test(fieldSlug)) throw new Error('SYSTEME_RESET_FIELD incorrect');
   const token = randomToken();
   const key = 'promo_activation:' + await promoTokenHash(token);
-  await env.CASHFLOW_KV.put(key, JSON.stringify({ userId, email }), { expirationTtl: PROMO_ACTIVATION_TTL });
-  const link = (env.SITE_URL || 'https://promoteurs.nyxia.top').replace(/\/$/, '') +
+  const link = (env.SITE_URL || 'https://promoteurs.nyxia.top').replace(/\/$/, '').replace(/^https?:\/\//i, '') +
     '/premiere-connexion.html?token=' + encodeURIComponent(token);
-  const subject = '💜 Active ton accès gratuit au Cercle d’entraide NyXia';
-  const safeName = String(fullName || '').split(' ')[0].replace(/[<>&"']/g, '').slice(0, 60);
-  const message = `Bonjour ${safeName || 'à toi'} !\n\nBienvenue dans le Cercle d’entraide NyXia.\n\nChoisis ton mot de passe personnel grâce à ce lien sécurisé (valable 48 heures) :\n${link}\n\nAprès l’activation, connecte-toi à ton tableau de bord : https://promoteurs.nyxia.top/login.html\n\nDiane et l’équipe NyXia 💜`;
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: env.PROMO_FROM_EMAIL, to: [email], subject, text: message })
-  });
-  if (!response.ok) {
+  const headers = { 'X-API-Key': String(env.SYSTEME_API_KEY), 'Accept': 'application/json', 'Content-Type': 'application/json' };
+  const apiBase = 'https://api.systeme.io/api';
+  await env.CASHFLOW_KV.put(key, JSON.stringify({ userId, email }), { expirationTtl: PROMO_ACTIVATION_TTL });
+  try {
+    const updated = await fetch(`${apiBase}/contacts/${encodeURIComponent(systemeContactId)}`, {
+      method: 'PATCH', headers,
+      body: JSON.stringify({ fields: [{ slug: fieldSlug, value: link }] })
+    });
+    if (!updated.ok) throw new Error('Mise à jour du champ d’activation refusée (HTTP '+updated.status+')');
+    const tagged = await fetch(`${apiBase}/contacts/${encodeURIComponent(systemeContactId)}/tags`, {
+      method: 'POST', headers, body: JSON.stringify({ tagId: Number(tagId) })
+    });
+    if (!tagged.ok) throw new Error('Ajout du tag d’activation refusé (HTTP '+tagged.status+')');
+  } catch (e) {
     await env.CASHFLOW_KV.delete(key);
-    throw new Error('Le service de courriel a refusé l’envoi (HTTP ' + response.status + ').');
+    throw e;
   }
 }
 async function handlePromoFirstConnection(request, env) {
