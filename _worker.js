@@ -856,6 +856,7 @@ async function handleSystemeWebhook(request, env) {
   }
 
   const body = await request.json().catch(() => ({}));
+  console.log('PROMO_WEBHOOK_RECEIVED', { type: String(body.type || body.event || 'unknown') });
   // Systeme.io : le courriel est souvent dans data.customer.email
   const data = body.data || body.payload || body;
   const customer = (data && data.customer) || body.customer || (data && data.contact) || body.contact || {};
@@ -887,7 +888,7 @@ async function handleSystemeWebhook(request, env) {
   ).toLowerCase();
   const event = String(body.event || (data && data.event) || body.type || body.action || 'purchase').toLowerCase();
 
-  if (!email) return json({ error: 'email manquant' }, 400);
+  if (!email) { console.error('PROMO_WEBHOOK_INVALID', 'email_missing'); return json({ error: 'email manquant' }, 400); }
   if (!env.DB) return json({ error: 'DB absente' }, 500);
 
   await ensureSchema(env);
@@ -953,6 +954,7 @@ async function handleSystemeWebhook(request, env) {
 
   try {
     await prepareSystemeActivation(env, userId, email, systemeContactId);
+    console.log('PROMO_ACTIVATION_TAG_ADDED');
   } catch (e) {
     console.error('SYSTEME_ACTIVATION_FAILED', String(e && e.message || e));
     return json({ error: 'Compte créé, mais activation Systeme.io non déclenchée.', detail: String(e && e.message || e) }, 502);
@@ -973,7 +975,7 @@ async function prepareSystemeActivation(env, userId, email, systemeContactId) {
   if (!env.CASHFLOW_KV || !env.SYSTEME_API_KEY || !env.SYSTEME_RESET_TAG_ID) {
     throw new Error('Variables Systeme.io / KV manquantes');
   }
-  if (!/^\d+$/.test(systemeContactId)) throw new Error('Identifiant contact Systeme.io absent du webhook optin');
+  if (!/^\d+$/.test(systemeContactId)) { console.error('PROMO_ACTIVATION_ERROR', 'contact_id_missing'); throw new Error('Identifiant contact Systeme.io absent du webhook optin'); }
   const tagId = String(env.SYSTEME_RESET_TAG_ID).replace(/[“”"']/g, '').trim();
   if (!/^\d+$/.test(tagId)) throw new Error('SYSTEME_RESET_TAG_ID incorrect');
   const fieldSlug = 'lien_activation_nyxia';
@@ -990,11 +992,19 @@ async function prepareSystemeActivation(env, userId, email, systemeContactId) {
       method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/merge-patch+json' },
       body: JSON.stringify({ fields: [{ slug: fieldSlug, value: link }] })
     });
-    if (!updated.ok) throw new Error('Mise à jour du champ d’activation refusée (HTTP '+updated.status+')');
+    if (!updated.ok) {
+      console.error('PROMO_SYSTEME_FIELD_UPDATE_FAILED', { httpStatus: updated.status });
+      throw new Error('Mise à jour du champ d’activation refusée (HTTP '+updated.status+')');
+    }
+    console.log('PROMO_SYSTEME_FIELD_UPDATED');
     const tagged = await fetch(`${apiBase}/contacts/${encodeURIComponent(systemeContactId)}/tags`, {
       method: 'POST', headers, body: JSON.stringify({ tagId: Number(tagId) })
     });
-    if (!tagged.ok) throw new Error('Ajout du tag d’activation refusé (HTTP '+tagged.status+')');
+    if (!tagged.ok) {
+      console.error('PROMO_SYSTEME_TAG_FAILED', { httpStatus: tagged.status });
+      throw new Error('Ajout du tag d’activation refusé (HTTP '+tagged.status+')');
+    }
+    console.log('PROMO_SYSTEME_TAG_ASSIGNED');
   } catch (e) {
     await env.CASHFLOW_KV.delete(key);
     throw e;
