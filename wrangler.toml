@@ -26,7 +26,7 @@ index_name = "univers-livres"
 [vars]
 SITE_URL = "https://promoteurs.nyxia.top"
 SYSTEME_RESET_FIELD = "nyxia_cercle_entraide" 
-SYSTEME_RESET_TAG_ID = “2224705”
+SYSTEME_RESET_TAG_ID = "2224705"
 
 [triggers]
 crons = ["0 13 * * *"]
