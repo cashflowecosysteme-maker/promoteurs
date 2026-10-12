@@ -398,7 +398,7 @@
     var requestAgent = _currentAgent
     fetch('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, history: chatHistories[requestAgent].slice(-10), userName: clientName, agent: requestAgent, attachment: attachmentToSend, token: sessionToken })
+      body: JSON.stringify({ formationId: window.promoFormationId||'', formationMode: window.promoFormationMode||'', message: text, history: chatHistories[requestAgent].slice(-10), userName: clientName, agent: requestAgent, attachment: attachmentToSend, token: sessionToken })
     })
     .then(function(r){ return r.json() })
     .then(function(data) {
@@ -765,5 +765,9 @@
 
   if (window.speechSynthesis) { try { window.speechSynthesis.getVoices() } catch (e) {} }
   </script>
-</body>
+<script>
+window.promoFormationId=new URL(location.href).searchParams.get('formationId')||'';
+window.promoFormationMode='follow';
+if(window.promoFormationId){window.addEventListener('load',async function(){try{const r=await fetch('/api/formation/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:sessionStorage.getItem('nyxia_token')||'',agent:'nyxia',formationId:window.promoFormationId})});const data=await r.json();if(!r.ok)throw Error(data.content||data.error||'Formation indisponible.');window.promoFormationMode=data.mode||'follow';addBotMessage(data.content||'Formation terminée.');if(typeof currentHistory==='function'){currentHistory().push({role:'assistant',content:data.content||''});saveChatToStorage();}}catch(e){addBotMessage(e.message);}});}
+</script></body>
 </html>

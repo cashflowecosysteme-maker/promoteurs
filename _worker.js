@@ -1185,6 +1185,164 @@ async function handlePromoPassword(request, env, mode) {
   return json({success:true});
 }
 
+function promoFormationNorm(v){return String(v||'').trim().toLowerCase()}
+function promoFormationPortal(env){return promoFormationNorm(env.FORMATION_PORTAL_ID||'promoteurs')}
+async function formations(env,agent){
+ const out=[];
+ const agentKey=promoFormationNorm(agent);
+ const portalKey=promoFormationNorm(promoFormationPortal(env));
+ if(!agentKey||!portalKey)return out;
+ let cur;
+ const prefix='formation:'+portalKey+':'+agentKey+':';
+ do{
+  const l=await env.CASHFLOW_KV.list({prefix,cursor:cur});
+  for(const k of l.keys||[]){
+   try{
+    const d=JSON.parse(await env.CASHFLOW_KV.get(k.name)||'{}');
+    if(!d||!d.id)continue;
+    if(promoFormationNorm(d.agent)!==agentKey)continue;
+    if(promoFormationNorm(d.portail)!==portalKey)continue;
+    out.push(d);
+   }catch(_){}
+  }
+  cur=l.list_complete?null:l.cursor;
+ }while(cur);
+ out.sort((a,b)=>(a.ordre||0)-(b.ordre||0)||String(a.titre||'').localeCompare(String(b.titre||'')));
+ return out;
+}
+function renderBlock(b,first){const t=String(b?.type||'texte').toLowerCase();if(t==='texte'||t==='intervention')return String(b.contenu||'').replace(/\{prenom\}/gi,first||'toi');if(t==='exercice')return['🎯 '+(b.objectif||''),b.consigne||''].filter(Boolean).join('\n\n');if(t==='image')return (b.legende?b.legende+'\n':'')+'[IMAGE: '+b.url+']';if(t==='audio')return (b.intro?b.intro+'\n':'')+'[AUDIO: '+b.url+']';if(t==='video'||t==='vidéo')return (b.intro?b.intro+'\n':'')+'[VIDEO: '+b.url+']';if(t==='lien')return (b.intro?b.intro+'\n':'')+'[LINK: '+b.url+'|'+(b.titre||'Ouvrir')+']';return''}
+function formationProgressKey(env,s,agent){return'formation-progress:'+promoFormationPortal(env)+':'+promoFormationNorm(s?.email)+':'+promoFormationNorm(agent)}
+async function readFormationProgress(env,s,agent,fs){
+ const key=formationProgressKey(env,s,agent);
+ let st={schemaVersion:2,completed:{},progress:{}};
+ try{const raw=JSON.parse(await env.CASHFLOW_KV.get(key)||'{}');if(raw&&typeof raw==='object')st={...st,...raw}}catch(_){}
+ if(!st.completed||typeof st.completed!=='object'||Array.isArray(st.completed))st.completed={};
+ if(!st.progress||typeof st.progress!=='object'||Array.isArray(st.progress))st.progress={};
+ /* Migration transparente de l'ancien format : mi / bi / started appartenaient à la première formation. */
+ if(fs?.length&&st.started!==undefined&&!Object.keys(st.progress).length){
+  st.progress[fs[0].id]={mi:Number(st.mi)||0,bi:Number(st.bi)||0,started:!!st.started};
+  delete st.mi;delete st.bi;delete st.started;
+ }
+ st.schemaVersion=2;
+ return{key,st}
+}
+function firstIncompleteFormation(fs,st){return(fs||[]).find(f=>!st.completed?.[f.id])||null}
+function progressForFormation(st,id){const p=st.progress?.[id]||{};return{mi:Math.max(0,Number(p.mi)||0),bi:Math.max(0,Number(p.bi)||0),started:!!p.started}}
+async function saveFormationProgressState(env,key,st){await env.CASHFLOW_KV.put(key,JSON.stringify(st))}
+
+function formationById(fs,id){return(fs||[]).find(f=>String(f.id)===String(id))||null}
+function formationStatus(fs,st,id){
+ const f=formationById(fs,id);if(!f)return'missing';
+ if(st.completed?.[f.id])return'completed';
+ const current=firstIncompleteFormation(fs,st);if(current&&current.id===f.id)return'active';
+ return'locked';
+}
+function blockAtFormation(f,p){
+ const mods=Array.isArray(f?.modules)?f.modules:[];
+ let mi=Math.max(0,Number(p.mi)||0),bi=Math.max(0,Number(p.bi)||0);
+ while(mi<mods.length&&bi>=(Array.isArray(mods[mi]?.blocs)?mods[mi].blocs:[]).length){mi++;bi=0}
+ if(mi>=mods.length)return{done:true,mods,mi,bi};
+ const m=mods[mi],blocs=Array.isArray(m?.blocs)?m.blocs:[];
+ return{done:false,mods,mi,bi,m,b:blocs[bi]};
+}
+function formationContent(f,pos,first,review=false){
+ if(!pos||pos.done)return'';
+ const body=renderBlock(pos.b,first);
+ const showHeader=Number(pos.bi||0)===0;
+ const header=showHeader
+  ? (review?'🔁 **Révision · ':'🎓 **')+(f.titre||'Formation')+' — Module '+(pos.m.numero||pos.mi+1)+' · '+(pos.m.titre||'')+'**\n\n'
+  : '';
+ return header+body+
+   (review?'\n\n— Dis-moi « suite » pour continuer ta révision.':'\n\n— Quand tu es prête, dis-moi « suite ».');
+}
+
+function formationControl(message){
+ const n=promoFormationNorm(message).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+ if(/^(suite|suivant|suivante|prochaine etape|continue)$/.test(n))return'advance';
+ if(/reprend|reprendre/.test(n)&&/(formation|cours)/.test(n))return'resume';
+ if(/commenc|debut|demarr/.test(n)&&/(formation|cours)/.test(n))return'start';
+ if(/formation|cours/.test(n))return'resume';
+ return null;
+}
+async function formationTurn(env,s,agent,msg,requestedId='',requestedMode=''){
+ const action=formationControl(msg);if(!action)return null;
+ const fs=await formations(env,agent);if(!fs.length)return null;
+ const state=await readFormationProgress(env,s,agent,fs),st=state.st;
+ const requested=formationById(fs,requestedId);
+ let mode=String(requestedMode||'').toLowerCase();
+ let f=requested||firstIncompleteFormation(fs,st);
+ if(!f)return{content:'🏆 Tu as terminé toutes les formations actuellement disponibles dans ce parcours.',formationDone:true};
+ const status=formationStatus(fs,st,f.id);
+ if(status==='locked')return{content:'🔒 Cette formation n’est pas encore débloquée. Ouvre « Mon Parcours » pour voir où tu es rendue.'};
+ if(status==='completed')mode='review';
+
+ if(mode==='review'){
+  st.review=st.review&&typeof st.review==='object'?st.review:{};
+  let p={mi:0,bi:0,started:true,...(st.review[f.id]||{})};
+  if(action==='advance')p.bi++;
+  const pos=blockAtFormation(f,p);
+  if(pos.done){
+   st.review[f.id]={mi:0,bi:0,started:true};
+   await saveFormationProgressState(env,state.key,st);
+   return{content:'✅ Révision de **'+(f.titre||'la formation')+'** terminée. Ta progression principale n’a pas changé.',reviewDone:true,formationId:f.id};
+  }
+  p.mi=pos.mi;p.bi=pos.bi;p.started=true;st.review[f.id]=p;
+  await saveFormationProgressState(env,state.key,st);
+  return{content:formationContent(f,pos,s.firstname,true),review:true,formationId:f.id};
+ }
+
+ let p=progressForFormation(st,f.id);
+ if(action==='advance'&&p.started)p.bi++;else p.started=true;
+ const pos=blockAtFormation(f,p);
+ if(pos.done){
+  st.completed[f.id]={completedAt:new Date().toISOString(),titre:f.titre||f.id};
+  delete st.progress[f.id];
+  const next=firstIncompleteFormation(fs,st);
+  await saveFormationProgressState(env,state.key,st);
+  if(next)return{content:'✅ **'+(f.titre||'Formation')+' terminée.**\n\n🎓 La prochaine étape de ton parcours est maintenant **'+(next.titre||'la formation suivante')+'**. Tu peux la retrouver dans **Mon Parcours**.',formationDone:true,formationId:f.id,nextFormationId:next.id};
+  return{content:'🏆 **'+(f.titre||'Formation')+' terminée.**\n\n✨ Tu as terminé toutes les formations actuellement disponibles dans ce parcours.',formationDone:true,formationId:f.id,allCompleted:true};
+ }
+ p.mi=pos.mi;p.bi=pos.bi;p.started=true;st.progress[f.id]=p;
+ await saveFormationProgressState(env,state.key,st);
+ return{content:formationContent(f,pos,s.firstname,false),formationId:f.id};
+}
+async function formationOpen(req,env){
+ const b=await req.json().catch(()=>({})),s=await getSessionOrNull(b.token,env);if(!s)return json({error:'Session expirée.'},401);
+ const agent=promoFormationNorm(b.agent),formationId=String(b.formationId||'');if(!['diane','nyxia','eric'].includes(agent))return json({error:'Personnage non disponible.'},403);
+ if(agent==='eric'){const denied=await requireEricAccess(env,s);if(denied)return denied;}
+ const fs=await formations(env,agent),state=await readFormationProgress(env,s,agent,fs),st=state.st,f=formationById(fs,formationId);
+ if(!f)return json({error:'Formation introuvable.'},404);
+ const status=formationStatus(fs,st,f.id);
+ if(status==='locked')return json({error:'Cette formation n’est pas encore débloquée.'},403);
+ if(status==='completed'){
+  st.review=st.review&&typeof st.review==='object'?st.review:{};
+  st.review[f.id]={mi:0,bi:0,started:true};
+  const pos=blockAtFormation(f,st.review[f.id]);
+  await saveFormationProgressState(env,state.key,st);
+  return json({content:formationContent(f,pos,s.firstname,true),mode:'review',formationId:f.id,status:'completed'});
+ }
+ let p=progressForFormation(st,f.id);p.started=true;
+ const pos=blockAtFormation(f,p);
+ if(pos.done){
+  st.completed[f.id]={completedAt:new Date().toISOString(),titre:f.titre||f.id};
+  delete st.progress[f.id];
+  await saveFormationProgressState(env,state.key,st);
+  return json({content:'✅ **'+(f.titre||'Formation')+' terminée.** Retourne dans Mon Parcours pour poursuivre.',mode:'follow',formationId:f.id,status:'completed',formationDone:true});
+ }
+ p.mi=pos.mi;p.bi=pos.bi;st.progress[f.id]=p;
+ await saveFormationProgressState(env,state.key,st);
+ return json({content:formationContent(f,pos,s.firstname,false),mode:'follow',formationId:f.id,status:'active'});
+}
+
+
+async function promoParcoursFormations(request,env){
+ const s=await getSessionOrNull(new URL(request.url).searchParams.get('token'),env);if(!s)return json({error:'Session expirée.'},401);
+ const trainers=[];
+ const profiles={diane:{name:'Diane',role:'Cercles et entraide',image:'/Diane.png'},nyxia:{name:'NyXia',role:'Orientation et outils',image:'/NyXia.png'},eric:{name:'Éric',role:'Communication et promotion',image:'/Eric.png'}};
+ for(const agent of ['diane','nyxia','eric']){const fs=await formations(env,agent);if(!fs.length)continue;const {st}=await readFormationProgress(env,s,agent,fs);trainers.push({agent,...profiles[agent],formations:fs.map(f=>({id:f.id,titre:f.titre,description:f.description||'',status:formationStatus(fs,st,f.id),hasProgress:progressForFormation(st,f.id).started}))});}
+ return json({trainers});
+}
+
 export default {
   // Cron quotidien : Éric vérifie les inactifs et alerte
   async scheduled(event, env, ctx) {
@@ -1195,6 +1353,8 @@ export default {
     try { if (env.DB) await ensureSchema(env); } catch (e) { console.error("schema", e); }
 const url = new URL(request.url);
     const path = url.pathname;
+    if(path==='/api/parcours/formations'&&request.method==='GET')return await promoParcoursFormations(request,env);
+    if(path==='/api/formation/open'&&request.method==='POST')return await formationOpen(request,env);
     if(request.method==='POST' && path==='/api/password/forgot') return await handlePromoPassword(request,env,'forgot');
     if(request.method==='POST' && path==='/api/password/reset') return await handlePromoPassword(request,env,'reset');
     if(request.method==='POST' && path==='/api/password/change') return await handlePromoPassword(request,env,'change');
@@ -1625,7 +1785,7 @@ async function requireEricAccess(env, session) {
 
 
 async function handleChat(request, env) {
-  const { message, history, userName, agent, attachment, token } = await request.json();
+  const { message, history, userName, agent, attachment, token, formationId, formationMode } = await request.json();
 
   // Vérification de session — protège la clé OpenRouter d'un usage non autorisé
   if (!token) return json({ error: 'Session manquante.' }, 401);
@@ -1639,6 +1799,8 @@ async function handleChat(request, env) {
     if (blocked) return blocked;
   }
 
+  const lesson=await formationTurn(env,sessionObj,String(agent||'nyxia').toLowerCase(),message,formationId,formationMode);
+  if(lesson)return json(lesson);
   let systemPrompt = (SYSTEM_PROMPTS[agent] || SYSTEM_PROMPTS.nyxia)
     .replace(/\{first_name\}/g, userName || 'toi');
 

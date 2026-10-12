@@ -1,0 +1,39 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mon parcours</title><style>body{margin:0;padding:24px;background:#0A1628;color:#D6D9F0;font:16px/1.5 system-ui;isolation:isolate}#starry-canvas{position:fixed;inset:0;z-index:-1;pointer-events:none}h1{color:#F4C842}.trainer-card{padding:20px;margin:18px 0;border:1px solid rgba(214,217,240,.2);border-radius:18px;background:rgba(15,28,63,.8)}.trainer-head{display:flex;align-items:center;gap:14px}.trainer-head img{width:64px;height:64px;border-radius:50%}.trainer-head span{display:block}.formation-row{display:flex;width:100%;gap:12px;align-items:center;justify-content:space-between;margin-top:14px;padding:16px;border:1px solid rgba(214,217,240,.2);border-radius:14px;background:rgba(255,255,255,.04);color:#D6D9F0;text-align:left;cursor:pointer}.formation-main small{display:block;margin-top:6px}.formation-row:disabled{opacity:.55;cursor:default}.completed{color:#00E676}.formation-status{white-space:nowrap}</style></head><body><canvas id="starry-canvas" aria-hidden="true"></canvas><h1>🎓 Mon parcours</h1><p>Retrouve tes Formations vivantes et reprends avec ton personnage à l’étape où tu en es.</p><div id="formation-trainers"></div><script src="/starry-bg.js" defer></script><script>
+var parcoursToken=new URLSearchParams(location.search).get('t')||sessionStorage.getItem('nyxia_token')||'';
+function parcoursEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function formationStatusLabel(f){
+ if(f.status==='completed')return'<span class="formation-status completed">✓ Terminée</span>';
+ if(f.status==='active')return'<span class="formation-status active">'+(f.hasProgress?'▶ En cours':'▶ Disponible')+'</span>';
+ return'<span class="formation-status locked">🔒 À venir</span>';
+}
+function renderParcoursFormations(data){
+ var host=document.getElementById('formation-trainers');if(!host)return;
+ var trainers=Array.isArray(data&&data.trainers)?data.trainers:[];
+ if(!trainers.length){host.innerHTML='<div class="empty">Aucune Formation Vivante n’est encore publiée dans ce portail.</div>';return}
+ host.innerHTML=trainers.map(function(t){
+   var avatar=t.image?'<img src="'+parcoursEsc(t.image)+'" alt="">':'<span class="trainer-fallback">✦</span>';
+   var rows=(t.formations||[]).map(function(f){
+     var disabled=f.status==='locked';
+     return '<button type="button" class="formation-row '+parcoursEsc(f.status||'')+'" data-agent="'+parcoursEsc(t.agent)+'" data-formation="'+parcoursEsc(f.id)+'" data-status="'+parcoursEsc(f.status||'')+'" '+(disabled?'disabled aria-disabled="true"':'')+'>'+
+       '<span class="formation-main"><strong>'+parcoursEsc(f.titre||'Formation')+'</strong>'+(f.description?'<small>'+parcoursEsc(f.description)+'</small>':'')+'</span>'+
+       formationStatusLabel(f)+'<span class="formation-arrow">'+(disabled?'':'›')+'</span></button>';
+   }).join('');
+   return '<article class="trainer-card"><div class="trainer-head">'+avatar+'<div><strong>'+parcoursEsc(t.name||t.agent)+'</strong><span>'+parcoursEsc(t.role||'Formateur·rice')+'</span></div></div><div class="formation-list">'+rows+'</div></article>';
+ }).join('');
+ host.querySelectorAll('[data-formation]:not([disabled])').forEach(function(btn){
+   btn.addEventListener('click',function(){
+     try{window.parent.postMessage({type:'nyxia_open_formation',agent:btn.dataset.agent,formationId:btn.dataset.formation,status:btn.dataset.status},location.origin)}catch(_){}
+   });
+ });
+}
+function loadParcoursFormations(){
+ var host=document.getElementById('formation-trainers');if(host)host.innerHTML='<div class="loading">Ton parcours de formation apparaît…</div>';
+ fetch('/api/parcours/formations?token='+encodeURIComponent(parcoursToken),{cache:'no-store'})
+  .then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d}})})
+  .then(function(res){if(!res.ok)throw Error(res.data.error||'Parcours indisponible.');renderParcoursFormations(res.data)})
+  .catch(function(e){if(host)host.innerHTML='<div class="error">'+parcoursEsc(e.message)+'</div>'});
+}
+window.addEventListener('message',function(e){if(e.data&&e.data.type==='nyxia_refresh_parcours')loadParcoursFormations()});
+document.addEventListener('DOMContentLoaded',loadParcoursFormations);
+
+</script></body></html>

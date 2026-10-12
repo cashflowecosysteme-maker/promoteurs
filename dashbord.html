@@ -298,6 +298,7 @@
 
       <div class="sidebar-section">
         <div class="sidebar-label">Outils</div>
+        <div class="nav-item" id="nav-parcours" onclick="showPanel('parcours')"><span class="nav-icon">🎓</span> Mon parcours <span class="nav-arrow">›</span></div>
         <div class="nav-item" id="nav-messages" onclick="showPanel('messages'); if(typeof loadMessages==='function')loadMessages()">
           <span class="nav-icon">💬</span> Messagerie <span class="nav-arrow">›</span>
         </div>
@@ -321,6 +322,7 @@
     </aside>
 
     <div class="main-content">
+<div class="panel" id="panel-parcours" style="flex-direction:column"><iframe id="parcours-iframe" src="/mon-parcours.html" style="width:100%;height:100%;border:none;display:block" title="Mon parcours — Formation vivante"></iframe></div>
       <!-- Panel Chat — charge la page individuelle du personnage en iframe -->
       <div class="panel active" id="panel-chat" style="flex-direction:column">
         <iframe id="agent-iframe" src="/chat-diane.html" style="width:100%;height:100%;border:none;display:block" title="Conversation"></iframe>
@@ -1290,5 +1292,7 @@
     }
 
 </script>
-</body>
+<script>
+window.addEventListener('message',function(e){if(e.origin!==location.origin)return;const frame=document.getElementById('parcours-iframe');if(!frame||e.source!==frame.contentWindow||!e.data||e.data.type!=='nyxia_open_formation')return;const agent=e.data.agent;if(!['diane','nyxia','eric'].includes(agent))return;openAgentTab(agent);const chat=document.getElementById('agent-iframe');chat.src='/chat-'+agent+'.html?formationId='+encodeURIComponent(e.data.formationId);});
+</script></body>
 </html>
