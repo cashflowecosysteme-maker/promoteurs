@@ -32,25 +32,23 @@ input,select{padding:12px 14px;border-radius:12px;border:1px solid rgba(123,92,2
 @media(max-width:700px){.mkt-stats{grid-template-columns:1fr 1fr}}
 .chip{padding:6px 12px;border-radius:50px;border:1px solid rgba(123,92,255,.2);background:transparent;color:var(--t3);font-size:12px;cursor:pointer}
 .chip.active{background:rgba(123,92,255,.2);color:#fff}
-</style>
-<script>
-var TOKEN=sessionStorage.getItem('nyxia_token')||'';
-async function api(p,m,b){var o={method:m||'GET',headers:{'Content-Type':'application/json','X-Cercle-Token':TOKEN}};if(b)o.body=JSON.stringify(b);var r=await fetch(p,o);return r.json().catch(function(){return{}})}
-function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDigits:2,maximumFractionDigits:2})+' $'}
-</script>
-</head><body>
-
-<div style="max-width:900px;margin:0 auto">
-  <h1 style="font-size:22px">✨ Banque d'images - Sons et Vidéos</h1>
-  <p class="sub">Puise des images, vidéos et sons pour habiller tes créations.</p>
-  <div class="row" style="margin-bottom:16px">
-    <button type="button" class="chip active">🎨 Images & Vidéos</button>
-    <button type="button" class="chip">🎵 Sons</button>
-  </div>
-  <div class="row" style="margin-bottom:16px">
-    <input type="search" placeholder="Que cherches-tu aujourd'hui ?" style="flex:1;border-radius:12px">
-    <button type="button" class="btn">Chercher ✦</button>
-  </div>
-  <div class="empty">Lance une recherche pour afficher des résultats</div>
-</div>
-</body></html>
+#starry-canvas{position:fixed;inset:0;z-index:0;pointer-events:none}main{position:relative;z-index:1;max-width:1100px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}.media-card{padding:12px;border-radius:16px;background:rgba(15,28,63,.94);border:1px solid var(--border)}.media-card img,.media-card video{width:100%;height:220px;object-fit:contain;border-radius:10px;background:#080f22}.media-card audio{width:100%;margin:12px 0}.media-card a{display:inline-block;text-decoration:none;margin-top:10px}.media-name{overflow-wrap:anywhere;margin-top:8px}a{color:#D6D9F0}.chip[aria-selected="true"]{background:rgba(123,92,255,.2);color:white}#status{margin:18px 0;color:#D6D9F0}button:disabled{opacity:.6}select option{background:#0F1C3F} @media(max-width:600px){body{padding:18px}.grid{grid-template-columns:1fr}}</style>
+</head><body><canvas id="starry-canvas" aria-hidden="true"></canvas><main>
+<div class="top-row"><div><h1>✨ Banque d’images, vidéos et sons</h1><p class="sub">Trouve les médias pour tes publications et tes créations.</p></div><a class="btn btn-ghost" href="/dashbord.html">Retour à mon espace</a></div>
+<div class="row" role="tablist" aria-label="Type de média"><button class="chip" role="tab" data-type="image" aria-selected="true">🎨 Images</button><button class="chip" role="tab" data-type="video" aria-selected="false">🎬 Vidéos</button><button class="chip" role="tab" data-type="sound" aria-selected="false">🎵 Sons</button></div>
+<form id="search-form" class="row" style="margin-top:18px"><input id="query" type="search" aria-label="Ta recherche" placeholder="Que cherches-tu aujourd’hui ?" required maxlength="200" style="flex:1;min-width:180px"><select id="format" aria-label="Format"><option value="">Tous les formats</option><option value="portrait">Vertical · 9:16</option><option value="landscape">Horizontal · 16:9</option><option value="square">Carré · 1:1</option></select><button class="btn" id="search-button">Chercher ✦</button></form>
+<p id="status" role="status" aria-live="polite">Lance une recherche pour afficher des résultats.</p><div id="results" class="grid"></div>
+</main><script src="/starry-bg.js" defer></script><script>
+'use strict';
+const token=sessionStorage.getItem('nyxia_token')||'';if(!token)location.replace('/login.html');
+let type='image',generation=0;const query=document.getElementById('query'),format=document.getElementById('format'),results=document.getElementById('results'),status=document.getElementById('status'),btn=document.getElementById('search-button');
+function safeURL(value){try{const u=new URL(value,location.origin);return u.origin===location.origin&&u.pathname==='/api/media/file'?u.href:null;}catch(e){return null;}}
+function render(items){results.replaceChildren();for(const item of items){const download=safeURL(item.downloadUrl);if(!download)continue;const card=document.createElement('article');card.className='media-card';let media;
+if(type==='sound'){const src=safeURL(item.audioUrl);if(!src)continue;media=document.createElement('audio');media.controls=true;media.preload='none';media.src=src;const name=document.createElement('p');name.className='media-name';name.textContent=item.name||'Son';card.append(name);}
+else if(type==='video'){const src=safeURL(item.videoUrl);if(!src)continue;media=document.createElement('video');media.controls=true;media.preload='none';media.playsInline=true;media.src=src;const poster=safeURL(item.previewUrl);if(poster)media.poster=poster;}
+else{const src=safeURL(item.previewUrl);if(!src)continue;media=document.createElement('img');media.loading='lazy';media.alt='Image pour ta création';media.src=src;}card.append(media);const link=document.createElement('a');link.className='btn';link.href=download;link.textContent='⬇ Télécharger';link.setAttribute('download','');card.append(link);results.append(card);}status.textContent=results.children.length?results.children.length+' résultats.':'Aucun résultat pour cette recherche. Essaie un autre mot.';}
+async function search(){const term=query.value.trim();if(!term)return;const mine=++generation;btn.disabled=true;status.textContent='Recherche en cours…';results.replaceChildren();try{const r=await fetch(type==='sound'?'/api/media/sounds':'/api/media/images',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,query:term,format:format.value})});if(r.status===401){sessionStorage.removeItem('nyxia_token');location.replace('/login.html');return;}const data=await r.json();if(!r.ok||data.error)throw new Error(data.error||'La recherche est indisponible.');if(mine!==generation)return;render((data.results||[]).filter(item=>type==='sound'||item.type===type));}catch(e){if(mine===generation)status.textContent=e.message||'Impossible de terminer la recherche.';}finally{if(mine===generation)btn.disabled=false;}}
+document.getElementById('search-form').addEventListener('submit',e=>{e.preventDefault();search();});
+document.querySelectorAll('[data-type]').forEach(tab=>tab.addEventListener('click',()=>{type=tab.dataset.type;document.querySelectorAll('[data-type]').forEach(el=>el.setAttribute('aria-selected',String(el===tab)));format.hidden=type==='sound';generation++;btn.disabled=false;results.replaceChildren();status.textContent='Lance une recherche pour afficher des résultats.';if(query.value.trim())search();}));format.addEventListener('change',()=>{if(query.value.trim())search();});
+fetch('/api/check-auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}).then(r=>r.json()).then(data=>{if(!data.valid)location.replace('/login.html');}).catch(()=>{status.textContent='Connexion indisponible. Réessaie dans quelques instants.';});
+</script></body></html>
