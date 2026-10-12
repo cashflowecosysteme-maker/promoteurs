@@ -1294,5 +1294,7 @@
 </script>
 <script>
 window.addEventListener('message',function(e){if(e.origin!==location.origin)return;const frame=document.getElementById('parcours-iframe');if(!frame||e.source!==frame.contentWindow||!e.data||e.data.type!=='nyxia_open_formation')return;const agent=e.data.agent;if(!['diane','nyxia','eric'].includes(agent))return;openAgentTab(agent);const chat=document.getElementById('agent-iframe');chat.src='/chat-'+agent+'.html?formationId='+encodeURIComponent(e.data.formationId);});
-</script></body>
+</script>
+<script src="/js/paypal-account.js"></script>
+</body>
 </html>
