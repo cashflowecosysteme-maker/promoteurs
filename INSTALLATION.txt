@@ -1,0 +1,24 @@
+CERCLE D’ENTRAIDE — MOTS DE PASSE
+
+Remplacer _worker.js, login.html et dashbord.html à la racine du dépôt promoteurs. Ajouter mot-de-passe.html, mot-de-passe-oublie.html et reinitialiser-mot-de-passe.html à la même racine. Les fichiers sont complets. Aucun changement à wrangler.toml. Les textes de login proviennent de la dernière version GitHub récupérée le 12 octobre 2026.
+
+Le bouton jaune Mot de passe se trouve en haut à droite du dashboard. Le lien Mot de passe oublié ? se trouve sous Se connecter. Le nom devient 💜 Cercle d’entraide.
+
+À CONFIGURER POUR LE COURRIEL DE RÉCUPÉRATION
+1. Dans Systeme.io, vérifier que le champ personnalisé nyxia_reset_url existe.
+2. Créer un tag dédié : nyxia_promoteurs_reset. Ne pas utiliser le tag d’inscription nyxia_cercle_entraide.
+3. Créer une règle active : tag nyxia_promoteurs_reset ajouté -> envoyer un email de récupération.
+4. Dans ce courriel, le lien du bouton doit être exactement https://{nyxia_reset_url} ; insérer le champ depuis les substitutions Systeme.io. Le worker stocke le lien sans https://.
+5. Dans les variables Cloudflare du service Promoteurs, ajouter SYSTEME_PASSWORD_RESET_TAG_ID avec l’identifiant numérique de ce nouveau tag. Conserver SYSTEME_RESET_TAG_ID=2224705 pour l’inscription, et conserver SYSTEME_API_KEY et SYSTEME_WEBHOOK_SECRET.
+6. Déployer, puis tester Mot de passe oublié ? avec un compte promoteur existant. Le lien reçu expire après 1 heure et est supprimé après utilisation. Le changement depuis le dashboard demande le mot de passe actuel. Les deux parcours redirigent vers login après réussite.
+
+Texte suggéré du courriel :
+Objet : 💜 Ton nouveau mot de passe — Cercle d’entraide
+Bonjour {first_name},
+Tu as demandé à modifier ton mot de passe. Clique sur le bouton ci-dessous pour en choisir un nouveau.
+Bouton : Choisir mon nouveau mot de passe
+Lien du bouton : https://{nyxia_reset_url}
+Ce lien est valable pendant une heure. Si tu n’as pas fait cette demande, tu peux ignorer ce courriel.
+Diane Boyer 💜
+
+Tests locaux réussis avec API simulée : accès sans session refusé, ancien mot de passe incorrect refusé, changement valide, lien de récupération supprimé après utilisation, lien réutilisé refusé, champ enregistré avant le déclenchement du tag, syntaxe JavaScript de toutes les pages. Envoi réel à vérifier après configuration Systeme.io.

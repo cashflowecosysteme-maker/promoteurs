@@ -1128,6 +1128,63 @@ async function runEricInactivityCheck(env) {
   return { ok: true, checked: list.length, alerted };
 }
 
+
+// Gestion des mots de passe du Cercle d'entraide.
+async function handlePromoPassword(request, env, mode) {
+  if (!env.DB || !env.CASHFLOW_KV) return json({error:'Service indisponible.'},503);
+  const b=await request.json().catch(()=>({}));
+  if(mode==='forgot') {
+    if(!env.SYSTEME_API_KEY || !/^\d+$/.test(String(env.SYSTEME_PASSWORD_RESET_TAG_ID||'')))
+      return json({error:'Le service de récupération du mot de passe n’est pas encore configuré.'},503);
+    const email=String(b.email||'').trim().toLowerCase();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({error:'Entre un courriel valide.'},400);
+    const rateKey='promo_reset_rate:'+await promoTokenHash(email);
+    if(await env.CASHFLOW_KV.get(rateKey)) return json({success:true});
+    await env.CASHFLOW_KV.put(rateKey,'1',{expirationTtl:60});
+    const user=await env.DB.prepare("SELECT id FROM users WHERE email = ? AND role = 'affiliate' LIMIT 1").bind(email).first();
+    if(!user) return json({success:true});
+    let key;
+    try {
+      const cid=await resolveSystemeContactId(env,email,'');
+      const token=randomToken(); key='promo_password_reset:'+await promoTokenHash(token);
+      const link=(env.SITE_URL||'https://promoteurs.nyxia.top').replace(/\/$/,'').replace(/^https?:\/\//i,'')+'/reinitialiser-mot-de-passe.html?token='+encodeURIComponent(token);
+      await env.CASHFLOW_KV.put(key,JSON.stringify({userId:user.id}),{expirationTtl:3600});
+      const headers={'X-API-Key':String(env.SYSTEME_API_KEY),'Content-Type':'application/merge-patch+json',Accept:'application/json'};
+      const base='https://api.systeme.io/api/contacts/'+cid;
+      const updated=await fetch(base,{method:'PATCH',headers,body:JSON.stringify({fields:[{slug:'nyxia_reset_url',value:link}]})});
+      if(!updated.ok) throw new Error('Champ de récupération HTTP '+updated.status);
+      const tag=String(env.SYSTEME_PASSWORD_RESET_TAG_ID);
+      const removed=await fetch(base+'/tags/'+tag,{method:'DELETE',headers});
+      if(!removed.ok && removed.status!==404) throw new Error('Retrait du tag de récupération HTTP '+removed.status);
+      const added=await fetch(base+'/tags',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({tagId:Number(tag)})});
+      if(!added.ok) throw new Error('Ajout du tag de récupération HTTP '+added.status);
+      return json({success:true});
+    }catch(e){if(key) await env.CASHFLOW_KV.delete(key);await env.CASHFLOW_KV.delete(rateKey);console.error('PROMO_PASSWORD_RESET_FAILED',String(e.message));return json({error:'L’envoi du lien a échoué. Réessaie dans quelques instants.'},502);}
+  }
+  const password=String(b.password||'');
+  if(password.length<10 || password.length>1024) return json({error:'Choisis un mot de passe d’au moins 10 caractères.'},400);
+  let user,key;
+  if(mode==='change') {
+    const session=await getSessionOrNull(String(b.token||''),env);
+    if(!session || !session.userId) return json({error:'Session expirée. Reconnecte-toi.'},401);
+    user=await env.DB.prepare('SELECT id, password_hash FROM users WHERE id = ?').bind(session.userId).first();
+    if(!user || !await verifyPasswordAffil(String(b.currentPassword||''),user.password_hash)) return json({error:'Ton mot de passe actuel est incorrect.'},400);
+  } else {
+    const token=String(b.token||'');
+    if(token.length<32 || token.length>200) return json({error:'Lien invalide.'},400);
+    key='promo_password_reset:'+await promoTokenHash(token);
+    const raw=await env.CASHFLOW_KV.get(key);
+    if(!raw) return json({error:'Ce lien a expiré ou a déjà été utilisé. Demande un nouveau lien.'},400);
+    const record=JSON.parse(raw);
+    user=await env.DB.prepare("SELECT id, password_hash FROM users WHERE id = ? AND role = 'affiliate'").bind(record.userId).first();
+    if(!user) return json({error:'Lien invalide.'},400);
+  }
+  const hash=await hashPasswordAffil(password);
+  await env.DB.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').bind(hash,new Date().toISOString(),user.id).run();
+  if(key) await env.CASHFLOW_KV.delete(key);
+  return json({success:true});
+}
+
 export default {
   // Cron quotidien : Éric vérifie les inactifs et alerte
   async scheduled(event, env, ctx) {
@@ -1138,6 +1195,9 @@ export default {
     try { if (env.DB) await ensureSchema(env); } catch (e) { console.error("schema", e); }
 const url = new URL(request.url);
     const path = url.pathname;
+    if(request.method==='POST' && path==='/api/password/forgot') return await handlePromoPassword(request,env,'forgot');
+    if(request.method==='POST' && path==='/api/password/reset') return await handlePromoPassword(request,env,'reset');
+    if(request.method==='POST' && path==='/api/password/change') return await handlePromoPassword(request,env,'change');
 
     if (path === '/' || path === '') {
       return env.ASSETS.fetch(new Request(new URL('/index.html', request.url), request));
