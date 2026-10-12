@@ -44,7 +44,7 @@ var TOKEN=(function(){
 async function api(p,m,b){var o={method:m||'GET',headers:{'Content-Type':'application/json','X-Cercle-Token':TOKEN}};if(b||m==='POST')o.body=JSON.stringify(Object.assign({token:TOKEN},b||{}));var r=await fetch(p,o);return r.json().catch(function(){return{}})}
 function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDigits:2,maximumFractionDigits:2})+' $'}
 </script>
-</head><body>
+</head><body><style id="nyxia-original-background">body{background:#0A1628!important;isolation:isolate}#starry-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}</style><canvas id="starry-canvas" aria-hidden="true"></canvas>
 <h1 id="hello">Bienvenue</h1>
 <p class="sub">Voici un aperçu de ton activité dans le Cercle</p>
 <div class="stats">
@@ -107,4 +107,4 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
   } catch(e) {}
 })();
 </script>
-</body></html>
+<script src="/starry-bg.js" defer></script></body></html>
