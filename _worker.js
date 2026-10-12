@@ -1343,6 +1343,29 @@ async function promoParcoursFormations(request,env){
  return json({trainers});
 }
 
+async function nyxiaPublicJson(url){
+ try{
+  const r=await fetch(url,{headers:{'Accept':'application/json'}});
+  if(!r.ok)return{ok:false,status:r.status,data:{error:'Source NyXia indisponible ('+r.status+').'}};
+  return{ok:true,status:200,data:await r.json()};
+ }catch(e){
+  return{ok:false,status:502,data:{error:'Connexion à la source NyXia impossible.',detail:String(e&&e.message||e)}};
+ }
+}
+async function nyxiaBoutiqueFeed(){
+ const [catalog,config]=await Promise.all([
+  nyxiaPublicJson('https://boutique.nyxia.top/api/catalog'),
+  nyxiaPublicJson('https://boutique.nyxia.top/api/config')
+ ]);
+ return json({
+  success:catalog.ok,
+  products:Array.isArray(catalog.data&&catalog.data.products)?catalog.data.products:[],
+  settings:(config.data&&config.data.settings)||{},
+  source:'Boutique NyXia',
+  error:catalog.ok?'':(catalog.data&&catalog.data.error)||'Boutique indisponible.'
+ },catalog.ok?200:502);
+}
+
 export default {
   // Cron quotidien : Éric vérifie les inactifs et alerte
   async scheduled(event, env, ctx) {
@@ -1353,6 +1376,7 @@ export default {
     try { if (env.DB) await ensureSchema(env); } catch (e) { console.error("schema", e); }
 const url = new URL(request.url);
     const path = url.pathname;
+    if(path==='/api/nyxia-universe/boutique'&&request.method==='GET')return await nyxiaBoutiqueFeed();
     if(path==='/api/parcours/formations'&&request.method==='GET')return await promoParcoursFormations(request,env);
     if(path==='/api/formation/open'&&request.method==='POST')return await formationOpen(request,env);
     if(request.method==='POST' && path==='/api/password/forgot') return await handlePromoPassword(request,env,'forgot');
