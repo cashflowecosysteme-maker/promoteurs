@@ -367,6 +367,7 @@ async function handleDeleteProduct(request, env) {
 async function handleStats(request, env) {
   if (!env.DB) return json({ error: 'DB absente' }, 500);
   await ensureSchema(env);
+  await nyxEnsureCommissionSchema(env);
   const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
   const url = new URL(request.url);
   const token = body.token || url.searchParams.get('token') || request.headers.get('X-Cercle-Token') || request.headers.get('X-Univers-Token') || '';
@@ -3166,4 +3167,27 @@ async function nyxPersonalClicks(env,code) {
     cursor=list.list_complete===false?list.cursor:null;
   } while(cursor);
   return total;
+}
+
+async function nyxEnsureCommissionSchema(env) {
+  if (!env.DB) throw new Error('Base de données absente.');
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS commissions (
+    id TEXT PRIMARY KEY,sale_id TEXT,product_id TEXT,seller_id TEXT,
+    beneficiary_id TEXT,beneficiary_code TEXT,level INTEGER DEFAULT 1,
+    amount REAL DEFAULT 0,currency TEXT DEFAULT 'CAD',status TEXT DEFAULT 'pending',
+    buyer_email TEXT,ref_code TEXT,source TEXT,created_at TEXT,paid_at TEXT,
+    rate_percent REAL,sale_amount REAL,rate_source TEXT
+  )`).run();
+  let info=await env.DB.prepare('PRAGMA table_info(commissions)').all();
+  const columns=new Set((info.results || []).map(c=>c.name));
+  const expected=[['sale_id','TEXT'],['product_id','TEXT'],['seller_id','TEXT'],['beneficiary_id','TEXT'],['beneficiary_code','TEXT'],['level','INTEGER'],['amount','REAL'],['currency','TEXT'],['status','TEXT'],['buyer_email','TEXT'],['ref_code','TEXT'],['source','TEXT'],['created_at','TEXT'],['paid_at','TEXT'],['rate_percent','REAL'],['sale_amount','REAL'],['rate_source','TEXT']];
+  for(const [name,type] of expected) {
+    if(columns.has(name))continue;
+    try{await env.DB.prepare('ALTER TABLE commissions ADD COLUMN '+name+' '+type).run()}
+    catch(e){const fresh=await env.DB.prepare('PRAGMA table_info(commissions)').all();if(!(fresh.results||[]).some(c=>c.name===name))throw e}
+  }
+  // Rattacher uniquement les anciennes lignes dont le produit permet de vérifier le vendeur.
+  await env.DB.prepare(`UPDATE commissions SET seller_id = (SELECT COALESCE(NULLIF(p.seller_id,''),'superadmin') FROM marketplace_products p WHERE p.id = commissions.product_id) WHERE (seller_id IS NULL OR seller_id = '') AND EXISTS (SELECT 1 FROM marketplace_products p WHERE p.id = commissions.product_id)`).run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_comm_seller ON commissions(seller_id)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_comm_benef ON commissions(beneficiary_id)').run();
 }
