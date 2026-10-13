@@ -3285,9 +3285,9 @@ function nyxStudioSaleInput(body,request){
  let ref=String(d.ref||body.ref||fields.ref||fields.referral_code||fields.nyxia_ref||c.ref||'').trim().toUpperCase();
  if(!ref){try{ref=new URL(c.sourceUrl||c.sourceURL||c.source_url||'').searchParams.get('ref')||'';}catch(_){}}
  const raw=Number(plan.direct_charge_amount??plan.amount);
- if(![69,6900,497,49700].includes(raw))throw Error('Tarif non reconnu : ce webhook accepte seulement Studio Prompt 69 $/mois ou 497 $/an.');
+ if(![1,100,69,6900,497,49700].includes(raw))throw Error('Tarif non reconnu : Studio Prompt accepte le test à 1 $, le mensuel à 69 $ ou l’annuel à 497 $.');
  // Les formats historiques et actuels sont normalisés uniquement pour ces tarifs précis.
- const amount=raw===6900?69:raw===49700?497:raw;
+ const amount=raw===100?1:raw===6900?69:raw===49700?497:raw;
  const externalId=String(d.transaction?.id||d.payment?.id||request.headers.get('X-Webhook-Message-Id')||d.order_item?.id||d.orderItem?.id||order.id||'').trim();
  if(!externalId)throw Error('Identifiant de paiement absent.');
  const currency=String(plan.currency||d.currency||'').toUpperCase();if(currency!=='CAD')throw Error('Devise différente de CAD : traitement refusé.');
