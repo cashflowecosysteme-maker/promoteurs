@@ -67,37 +67,13 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
   <h2 style="margin:0 0 12px;font-size:15px;color:#fff">Mes recrutements et ceux de mon équipe</h2>
   <div id="recruitsList" style="display:flex;flex-direction:column;gap:10px">Chargement…</div>
 </div>
-<div class="card">
-  <div style="font-weight:600;color:#fff;margin-bottom:8px">🔗 Ton lien d’équipe <span class="badge" id="codeBadge">—</span></div>
-  <div class="lien">
-    <code id="lien">Chargement…</code>
-    <button type="button" class="btn btn-ghost" id="copy">Copier</button>
-  </div>
-  <p class="sub" style="margin:10px 0 0">Ce lien contient <strong style="color:#fff">ton empreinte unique</strong>. Toute personne qui s’inscrit via ce lien rejoint <strong style="color:#fff">ton</strong> cercle.</p>
-</div>
+
 <script>
 (async function(){
   var d=await api('/api/check-auth','POST',{token:TOKEN});
-  if(!d.valid){ document.getElementById('lien').textContent='Session expirée — déconnecte-toi puis reconnecte-toi.'; return; }
+  if(!d.valid){ var err=document.getElementById('statsError');err.hidden=false;err.textContent='Session expirée — reconnecte-toi.';document.getElementById('salesList').textContent='Session expirée.';document.getElementById('recruitsList').textContent='Session expirée.';return; }
   if(d.firstname) document.getElementById('hello').textContent='Bienvenue, '+d.firstname+' 👋';
   var code=(d.code||d.affiliate_code||'').toString().trim().toUpperCase();
-  if(!code){
-    d=await api('/api/ensure-code','POST',{token:TOKEN});
-    code=(d.code||d.affiliate_code||'').toString().trim().toUpperCase();
-  }
-  if(!code){
-    document.getElementById('lien').textContent='Code manquant. Déconnecte-toi, reconnecte-toi. Si ça continue : compte sans ligne D1 (email).';
-    document.getElementById('codeBadge').textContent='sans code';
-    return;
-  }
-  document.getElementById('codeBadge').textContent='code '+code;
-  var lien='https://repertoire.nyxia.top/r/'+code;
-  document.getElementById('lien').textContent=lien;
-  document.getElementById('copy').onclick=function(){
-    navigator.clipboard.writeText(lien);
-    this.textContent='Copié ✓';
-    var b=this; setTimeout(function(){ b.textContent='Copier'; },1500);
-  };
   try {
     var st=await api('/api/stats','POST',{token:TOKEN});
     if(!st.success) throw new Error(st.error||'Impossible de charger tes ventes.');
@@ -132,7 +108,7 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
         +(Number(r.level)>1&&r.sponsor_name?'<p style="margin-top:4px;font-size:12px">Recommandé par '+esc(r.sponsor_name)+'</p>':'')+'</div>';
     }).join(''):'Aucun recrutement personnel ou de ton équipe pour le moment.';
     document.getElementById('cercle').textContent=String(st.team_total||st.team_n1||0);
-    document.getElementById('clics').textContent = st.success && String(st.code || '').toUpperCase() === String(code || '').toUpperCase() ? String(st.clicks || 0) : '—';
+    document.getElementById('clics').textContent = st.success && (!code || String(st.code || '').toUpperCase() === String(code).toUpperCase()) ? String(st.clicks || 0) : '—';
   } catch(e) {
     var error=document.getElementById('statsError');error.hidden=false;error.textContent=e.message||'Impossible de charger tes ventes.';
     ['gains','pending','cercle','clics'].forEach(function(id){document.getElementById(id).textContent='—'});
