@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Réception des ventes — Promoteurs NyXia</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+<style>body{margin:0;padding:28px;background:#0A1628;color:#d6d9f0;font-family:Outfit,sans-serif}main{max-width:800px;margin:0 auto}h1{color:#fff;font-size:24px;font-weight:500}.card{padding:24px;border:1px solid #a78bfa40;border-radius:16px;background:linear-gradient(135deg,#14172dba,#07132ab0);margin:20px 0;line-height:1.7}button,a{font:inherit;color:white}button{padding:12px 18px;background:linear-gradient(135deg,#7B5CFF,#5A6CFF);border:0;border-radius:12px;cursor:pointer}button:disabled{opacity:.5}#status{color:#ffe48a}pre{white-space:pre-wrap;word-break:break-word;font:inherit}#starry-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}</style></head>
+<body><canvas id="starry-canvas" aria-hidden="true"></canvas><main><h1>Réception des ventes Studio Prompt</h1><p>Ouvre cette page depuis le navigateur où tu es connecté à ton compte administrateur Promoteurs.</p><div class="card"><p id="status" role="status">Vérification…</p><pre id="receipt"></pre></div><button id="refresh">Actualiser</button> <button id="copy" hidden>Copier le résultat</button><p><a href="/superadmin.html">Retour à mon espace</a></p></main>
+<script>
+let summary='';
+async function refresh(){
+const button=document.getElementById('refresh');button.disabled=true;
+try{
+const token=sessionStorage.getItem('nyxia_token')||'';
+const response=await fetch('/api/studio-abonnement/status',{headers:{'X-Cercle-Token':token},cache:'no-store'});
+const data=await response.json();if(!response.ok||!data.success)throw Error(data.error||'Impossible de vérifier la réception.');
+document.getElementById('status').textContent=data.secret_configured?'Secret Cloudflare configuré.':'Le secret STUDIO_WEBHOOK_SECRET est absent de ce Worker.';
+const r=data.receipt;
+summary=r?'Dernière notification : '+new Date(r.date).toLocaleString('fr-CA')+'\nRéponse : '+r.status+'\n'+r.message+'\nCommissions créées : '+r.commissions_count:'Aucune notification de vente reçue depuis cette correction. Les achats antérieurs ne sont pas récupérés automatiquement.';
+document.getElementById('receipt').textContent=summary;document.getElementById('copy').hidden=false;
+}catch(e){document.getElementById('status').textContent=e.message;document.getElementById('receipt').textContent='';}
+finally{button.disabled=false;}
+}
+document.getElementById('refresh').onclick=refresh;
+document.getElementById('copy').onclick=async()=>{await navigator.clipboard.writeText(document.getElementById('status').textContent+'\n'+summary);document.getElementById('copy').textContent='Copié';};
+refresh();
+</script><script src="/starry-bg.js" defer></script></body></html>

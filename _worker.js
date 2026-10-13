@@ -1406,6 +1406,7 @@ export default {
 const url = new URL(request.url);
     const path = url.pathname;
     if(path==='/api/webhooks/studio-abonnement'&&request.method==='POST')return await nyxStudioSaleWebhook(request,env);
+    if(path==='/api/studio-abonnement/status'&&request.method==='GET')return await nyxStudioSaleStatus(request,env);
     if(path==='/api/share-products' && request.method==='GET') {
       const session=await getSessionOrNull(request.headers.get('X-Cercle-Token')||'',env);
       if(!session)return json({error:'Session expirée. Reconnecte-toi.'},401);
@@ -3278,7 +3279,7 @@ function nyxStudioSaleFields(raw){
 }
 function nyxStudioSaleInput(body,request){
  const d=body.data||body,c=d.customer||body.customer||{},plan=d.offer_price_plan||d.pricePlan||d.offerPricePlan||{},order=d.order||body.order||{};
- const type=String(body.type||request.headers.get('X-Webhook-Event')||'');
+ const type=String(request.headers.get('X-Webhook-Event')||body.type||'');
  if(!['customer.sale.completed','SALE_NEW','NEW_SALE'].includes(type))return {ignored:true};
  const fields=nyxStudioSaleFields(c.fields);
  let ref=String(d.ref||body.ref||fields.ref||fields.referral_code||fields.nyxia_ref||c.ref||'').trim().toUpperCase();
@@ -3287,28 +3288,35 @@ function nyxStudioSaleInput(body,request){
  if(![1,100,69,6900,497,49700].includes(raw))throw Error('Tarif non reconnu : Studio Prompt accepte le test à 1 $, le mensuel à 69 $ ou l’annuel à 497 $.');
  // Les formats historiques et actuels sont normalisés uniquement pour ces tarifs précis.
  const amount=raw===100?1:raw===6900?69:raw===49700?497:raw;
- const externalId=String(d.transaction?.id||d.payment?.id||request.headers.get('X-Webhook-Message-Id')||d.order_item?.id||d.orderItem?.id||order.id||'').trim();
+ const externalId=String(d.transaction?.id||d.payment?.id||d.order_item?.id||d.orderItem?.id||order.id||request.headers.get('X-Webhook-Message-Id')||'').trim();
  if(!externalId)throw Error('Identifiant de paiement absent.');
  const currency=String(plan.currency||d.currency||'').toUpperCase();if(currency!=='CAD')throw Error('Devise différente de CAD : traitement refusé.');
- return {buyerName:String(c.full_name||c.name||[c.first_name||c.firstname,c.last_name||c.lastname].filter(Boolean).join(' ')||'').trim(),email:String(c.email||d.email||'').trim().toLowerCase(),ref:String(ref).trim().toUpperCase(),amount,externalId,currency};
+ return {funnelStepId:String((d.funnelStep||d.funnel_step||{}).id||''),buyerName:String(c.full_name||c.name||[c.first_name||c.firstname||fields.first_name,c.last_name||c.lastname||fields.surname||fields.last_name].filter(Boolean).join(' ')||'').trim(),email:String(c.email||d.email||'').trim().toLowerCase(),ref:String(ref).trim().toUpperCase(),amount,externalId,currency};
 }
-async function nyxStudioSaleWebhook(request,env){
+async function nyxStudioSaleProcess(request,env){
  const expected = String(env.STUDIO_WEBHOOK_SECRET || '').trim();
  if (!expected) return json({error:'STUDIO_WEBHOOK_SECRET non configuré.'},503);
- const supplied = String(request.headers.get('X-Webhook-Secret') || new URL(request.url).searchParams.get('key') || '').trim();
- if (!supplied) return json({error:'Clé invalide.'},401);
+ const rawBody = await request.text();
+ let body;
+ try { body = JSON.parse(rawBody); } catch (_) { return json({error:'Notification JSON invalide.'},400); }
+ const signature = String(request.headers.get('X-Webhook-Signature') || '').trim().toLowerCase();
+ if (!/^[a-f0-9]{64}$/.test(signature)) return json({error:'Signature Systeme.io absente ou invalide.'},401);
  const encoder = new TextEncoder();
- const [expectedHash, suppliedHash] = await Promise.all([
-   crypto.subtle.digest('SHA-256', encoder.encode(expected)),
-   crypto.subtle.digest('SHA-256', encoder.encode(supplied))
- ]);
- const left = new Uint8Array(expectedHash), right = new Uint8Array(suppliedHash);
- let difference = 0;
- for (let i = 0; i < left.length; i++) difference |= left[i] ^ right[i];
- if (difference !== 0) return json({error:'Clé invalide.'},401);
+ const key = await crypto.subtle.importKey('raw',encoder.encode(expected),{name:'HMAC',hash:'SHA-256'},false,['verify']);
+ const signatureBytes = new Uint8Array(signature.match(/../g).map(hex => parseInt(hex,16)));
+ const normalized = JSON.stringify(body).replace(/\//g,'\\/').replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4,'0'));
+ const valid = await crypto.subtle.verify('HMAC',key,signatureBytes,encoder.encode(rawBody)) ||
+   await crypto.subtle.verify('HMAC',key,signatureBytes,encoder.encode(normalized));
+ if (!valid) return json({error:'Signature Systeme.io invalide.'},401);
  if(!env.DB)return json({error:'Base absente.'},500);
- let input;try{input=nyxStudioSaleInput(await request.json(),request);}catch(e){return json({error:e.message},422);}
+ const event = String(request.headers.get('X-Webhook-Event') || body.type || '');
+ const eventData = body.data || body;
+ const eventStep = String((eventData.funnelStep || eventData.funnel_step || {}).id || '');
+ if (eventStep && eventStep !== '25460120') return json({success:true,ignored:true,reason:'Autre page de paiement.'});
+ if (event === 'SALE_NEW' && !eventStep) return json({error:'Identifiant de la page de paiement absent de la notification.'},422);
+ let input;try{input=nyxStudioSaleInput(body,request);}catch(e){return json({error:e.message},422);}
  if(input.ignored)return json({success:true,ignored:true});
+ if(input.funnelStepId && input.funnelStepId !== '25460120') return json({success:true,ignored:true,reason:'Autre page de paiement.'});
  if(!input.email)return json({error:'Courriel acheteur absent.'},422);
  await ensureSchema(env);await nyxEnsureCommissionSchema(env);await nyxCommissionSchema(env);
  const rows=await env.DB.prepare('SELECT id,title,seller_id FROM marketplace_products').all();
@@ -3319,4 +3327,23 @@ async function nyxStudioSaleWebhook(request,env){
  const chain=await resolveChainByRef(env,input.ref);if(!chain.length)return json({error:'Empreinte promoteur inconnue : aucune commission créée.'},422);
  const result=await writeSaleCommissions(env,{sellerId:'superadmin',productId:products[0].id,amount:input.amount,buyerEmail:input.email,buyerName:input.buyerName,refCode:input.ref,source:'studio_abonnement_systeme',externalId:input.externalId,currency:input.currency});
  return json({success:true,ref:input.ref,amount:input.amount,...result});
+}
+
+async function nyxStudioSaleWebhook(request,env) {
+ let response;
+ try { response = await nyxStudioSaleProcess(request,env); }
+ catch (e) { console.error('STUDIO_SALE_FAILURE',String(e && e.message || e)); response=json({error:'Erreur pendant l’enregistrement des commissions.'},500); }
+ try {
+   const result=await response.clone().json();
+   const receipt={date:new Date().toISOString(),status:response.status,success:result.success===true,ignored:result.ignored===true,message:result.error||result.reason||(result.duplicate?'Vente déjà enregistrée.':result.success?'Notification traitée.':'Notification refusée.'),commissions_count:Array.isArray(result.commissions)?result.commissions.length:0};
+   console.log('STUDIO_SALE_RECEIPT',receipt);
+   if(env.CASHFLOW_KV)await env.CASHFLOW_KV.put('studio_sale:last_receipt',JSON.stringify(receipt),{expirationTtl:604800});
+ } catch (_) {}
+ return response;
+}
+async function nyxStudioSaleStatus(request,env) {
+ const session=await sessionFromRequest(request,env,{});
+ if(!session || !['admin','superadmin'].includes(session.role))return json({error:'Connecte-toi avec ton compte administrateur Promoteurs.'},401);
+ const receipt=env.CASHFLOW_KV?await env.CASHFLOW_KV.get('studio_sale:last_receipt','json'):null;
+ return json({success:true,secret_configured:!!String(env.STUDIO_WEBHOOK_SECRET||'').trim(),receipt});
 }
