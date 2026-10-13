@@ -1012,6 +1012,14 @@ async function prepareSystemeActivation(env, userId, email, systemeContactId) {
       throw new Error('Mise à jour du champ d’activation refusée (HTTP '+updated.status+')');
     }
     console.log('PROMO_SYSTEME_FIELD_UPDATED');
+    // Le même contact peut demander une nouvelle activation : réarmer uniquement
+    // le tag d'activation après avoir enregistré le nouveau lien.
+    const removed = await fetch(`${apiBase}/contacts/${encodeURIComponent(systemeContactId)}/tags/${tagId}`, {
+      method: 'DELETE', headers
+    });
+    if (!removed.ok && removed.status !== 404) {
+      throw new Error('Réarmement du courriel d’activation refusé (HTTP '+removed.status+')');
+    }
     const tagged = await fetch(`${apiBase}/contacts/${encodeURIComponent(systemeContactId)}/tags`, {
       method: 'POST', headers, body: JSON.stringify({ tagId: Number(tagId) })
     });
@@ -3172,3 +3180,4 @@ async function nyxEnsureCommissionSchema(env) {
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_comm_seller ON commissions(seller_id)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_comm_benef ON commissions(beneficiary_id)').run();
 }
+
