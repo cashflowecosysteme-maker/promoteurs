@@ -1105,7 +1105,7 @@ async function runEricInactivityCheck(env) {
       `${messengerLine}\n${mailto}\n\n` +
       `— Éric, ton gardien du Cercle`;
 
-    const subject = `💜 ${prenom} s'est éloigné·e (${days} j sans connexion)`;
+    const subject = `💜 Suivi de ton équipe : ${prenom} — ${days} jours sans connexion`;
 
     // 1) Super Admin
     await ericWriteMessage(env, '__admin__',
