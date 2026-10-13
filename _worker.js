@@ -2642,123 +2642,58 @@ async function nyxMediaProvider(url,headers){
   if(!r.ok)throw new Error('HTTP '+r.status);
   return r.json();
 }
-async function handleMediaImages(request, env) {
-  const { token, query, format } = await request.json();
-  const session = await getSessionOrNull(token, env);
-  if (!session) return json({ error: 'Session expirée.' }, 401);
-  if (!query) return json({ error: 'Recherche requise.' }, 400);
-
-  const results = [];
-  const pexelsOrient = orientationFor(format==='1:1'?'square':format==='16:9'||format==='3:2'?'landscape':format==='9:16'||format==='4:5'?'portrait':format, 'pexels');
-  const unsplashOrient = orientationFor(format==='1:1'?'square':format==='16:9'||format==='3:2'?'landscape':format==='9:16'||format==='4:5'?'portrait':format, 'unsplash');
-
-  // Source 1 — photos
-  try {
-    let u = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=12`;
-    if (pexelsOrient) u += `&orientation=${pexelsOrient}`;
-    const r = await fetch(u, { headers: { Authorization: env.PEXELS_KEY } });
-    if (r.ok) {
-      const data = await r.json();
-      (data.photos || []).filter(p=>nyxMediaMatches(format,p.width,p.height)).forEach(p => {
-        results.push({
-          width:p.width, height:p.height, id: 'a_' + p.id, type: 'image',
-          previewUrl: mediaProxyUrl(p.src.medium, token),
-          downloadUrl: mediaProxyUrl(p.src.large, token, { download: true, name: `nyxia-image-${p.id}.jpg` }),
-          credit: 'NyXia'
-        });
-      });
-    }
-  } catch (e) {}
-
-  // Source 2 — photos
-  try {
-    let u = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=12`;
-    if (unsplashOrient) u += `&orientation=${unsplashOrient}`;
-    const r = await fetch(u, { headers: { Authorization: `Client-ID ${env.UNSPLASH_KEY}` } });
-    if (r.ok) {
-      const data = await r.json();
-      (data.results || []).filter(p=>nyxMediaMatches(format,p.width,p.height)).forEach(p => {
-        results.push({
-          width:p.width, height:p.height, id: 'c_' + p.id, type: 'image',
-          previewUrl: mediaProxyUrl(p.urls.small, token),
-          downloadUrl: mediaProxyUrl(p.urls.regular, token, { download: true, name: `nyxia-image-${p.id}.jpg` }),
-          credit: 'NyXia'
-        });
-      });
-    }
-  } catch (e) {}
-
-  // Mélange pour que ce soit une seule banque homogène, jamais groupée par source
-  for (let i = results.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [results[i], results[j]] = [results[j], results[i]];
+async function nyxMediaSearch(request,env,kind){
+  const b=await request.json().catch(()=>({}));const token=b.token||request.headers.get('X-Cercle-Token')||'';
+  if(!await getSessionOrNull(token,env))return json({error:'Session expirée. Reconnecte-toi.'},401);
+  const q=String(b.query||'').trim().slice(0,200),format=String(b.format||'');
+  if(!q)return json({error:'Indique un mot pour lancer la recherche.'},400);
+  if(format && !nyxMediaRatio(format))return json({error:'Format inconnu.'},400);
+  if(kind==='video' && !['','portrait','landscape','square','9:16','16:9','1:1'].includes(format))return json({error:'Format vidéo inconnu.'},400);
+  const results=[],seen=new Set(),jobs=[],issues=[];let missing=0,failed=0,completed=0;
+  const add=item=>{if(kind!=='sound'&&!nyxMediaMatches(format,item.width,item.height))return;const key=item.downloadUrl;if(!key||seen.has(key))return;seen.add(key);results.push(item);};
+  const run=(provider,key,fn)=>{if(!key){missing++;issues.push({provider,reason:'Clé API absente'});return;}jobs.push((async()=>{try{await fn(key);completed++;}catch(e){failed++;const reason=String(e.message||e);issues.push({provider,reason});console.error('MEDIA_PROVIDER_FAILED',kind,provider,reason);}})());};
+  const pexels=env.PEXELS_KEY||env.PEXELS_API_KEY, pixImage=env.PIXABAY_KEY_IMAGES||env.PIXABAY_KEY||env.PIXABAY_API_KEY,pixVideo=env.PIXABAY_KEY_VIDEO||env.PIXABAY_KEY||env.PIXABAY_API_KEY;
+  const orient=orientationFor(format,'pexels');
+  if(kind==='image'){
+    run('Pexels',pexels,async key=>{
+      let u='https://api.pexels.com/v1/search?per_page=30&query='+encodeURIComponent(q);if(orient)u+='&orientation='+orient;
+      const d=await nyxMediaProvider(u,{Authorization:String(key)});
+      for(const p of d.photos||[]){const src=p.src||{},file=src.original||src.large2x||src.large;if(file)add({id:'pexels_'+p.id,type:'image',width:p.width,height:p.height,previewUrl:mediaProxyUrl(src.medium||file,token),downloadUrl:mediaProxyUrl(file,token,{download:true,name:'nyxia-image-'+p.id+'.jpg'})});}
+    });
+    run('Pixabay Images',pixImage,async key=>{
+      const r=nyxMediaRatio(format);const orientation=r>1?'horizontal':r&&r<1?'vertical':'all';
+      const d=await nyxMediaProvider('https://pixabay.com/api/?key='+encodeURIComponent(key)+'&q='+encodeURIComponent(q)+'&per_page=30&safesearch=true&orientation='+orientation,{});
+      for(const p of d.hits||[]){const file=p.largeImageURL||p.webformatURL;if(file)add({id:'pixabay_'+p.id,type:'image',width:p.imageWidth,height:p.imageHeight,previewUrl:mediaProxyUrl(p.webformatURL||file,token),downloadUrl:mediaProxyUrl(file,token,{download:true,name:'nyxia-image-'+p.id+'.jpg'})});}
+    });
+    run('Unsplash',env.UNSPLASH_ACCES_KEY||env.UNSPLASH_ACCESS_KEY||env.UNSPLASH_KEY,async key=>{
+      let u='https://api.unsplash.com/search/photos?per_page=30&query='+encodeURIComponent(q);const o=orientationFor(format,'unsplash');if(o)u+='&orientation='+o;
+      const d=await nyxMediaProvider(u,{Authorization:'Client-ID '+key});
+      for(const p of d.results||[]){const src=p.urls||{},file=src.full||src.regular;if(file)add({id:'unsplash_'+p.id,type:'image',width:p.width,height:p.height,previewUrl:mediaProxyUrl(src.small||file,token),downloadUrl:mediaProxyUrl(file,token,{download:true,name:'nyxia-image-'+p.id+'.jpg'})});}
+    });
+  }else if(kind==='video'){
+    run('Pexels',pexels,async key=>{
+      let u='https://api.pexels.com/videos/search?per_page=24&query='+encodeURIComponent(q);if(orient)u+='&orientation='+orient;
+      const d=await nyxMediaProvider(u,{Authorization:String(key)});
+      for(const p of d.videos||[]){const file=(p.video_files||[]).filter(f=>f.link&&(!f.file_type||f.file_type==='video/mp4')&&nyxMediaMatches(format,f.width,f.height)).sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];if(file)add({id:'pexels_'+p.id,type:'video',width:file.width,height:file.height,previewUrl:p.image?mediaProxyUrl(p.image,token):'',videoUrl:mediaProxyUrl(file.link,token),downloadUrl:mediaProxyUrl(file.link,token,{download:true,name:'nyxia-video-'+p.id+'.mp4'})});}
+    });
+    run('Pixabay Vidéos',pixVideo,async key=>{
+      const d=await nyxMediaProvider('https://pixabay.com/api/videos/?key='+encodeURIComponent(key)+'&q='+encodeURIComponent(q)+'&per_page=24&safesearch=true',{});
+      for(const p of d.hits||[]){const f=Object.values(p.videos||{}).filter(f=>f.url&&nyxMediaMatches(format,f.width,f.height)).sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];if(f)add({id:'pixabay_'+p.id,type:'video',width:f.width,height:f.height,previewUrl:p.picture_id?mediaProxyUrl('https://i.vimeocdn.com/video/'+encodeURIComponent(p.picture_id)+'_640x360.jpg',token):'',videoUrl:mediaProxyUrl(f.url,token),downloadUrl:mediaProxyUrl(f.url,token,{download:true,name:'nyxia-video-'+p.id+'.mp4'})});}
+    });
+  }else{
+    run('Freesound',env.FREESOUND_API_KEY,async key=>{
+      const d=await nyxMediaProvider('https://freesound.org/apiv2/search/text/?query='+encodeURIComponent(q)+'&page_size=24&fields=id,name,previews,duration',{Authorization:'Token '+key});
+      for(const p of d.results||[]){const prev=p.previews||{},audio=prev['preview-hq-mp3']||prev['preview-lq-mp3']||prev['preview-hq-ogg'];if(audio)add({id:'freesound_'+p.id,type:'sound',name:p.name||'Son',duration:Math.round(Number(p.duration||0)),audioUrl:mediaProxyUrl(audio,token),downloadUrl:mediaProxyUrl(audio,token,{download:true,name:'nyxia-son-'+p.id+(audio.includes('.ogg')?'.ogg':'.mp3')})});}
+    });
   }
-
-  return json({ success: true, results });
+  if(!jobs.length)return json({error:'La banque de ce type de média n’est pas encore configurée. Contacte l’équipe NyXia.'},503);
+  await Promise.all(jobs);
+  if(!completed)return json({error:'Recherche indisponible : '+issues.map(x=>x.provider+' ('+x.reason+')').join('; '),issues},502);
+  return json({success:true,results:results.slice(0,kind==='image'?60:36),warning:issues.length?'Source(s) indisponible(s) : '+issues.map(x=>x.provider+' ('+x.reason+')').join('; '):'',issues});
 }
-
-async function handleMediaVideos(request, env) {
-  const { token, query, format } = await request.json();
-  const session = await getSessionOrNull(token, env);
-  if (!session) return json({ error: 'Session expirée.' }, 401);
-  if (!query) return json({ error: 'Recherche requise.' }, 400);
-
-  const results = [];
-  const pexelsOrient = orientationFor(format==='1:1'?'square':format==='16:9'?'landscape':format==='9:16'?'portrait':format, 'pexels');
-  const unsplashOrient = orientationFor(format==='1:1'?'square':format==='16:9'?'landscape':format==='9:16'?'portrait':format, 'unsplash');
-
-  // Source 1 — vidéos
-  try {
-    let u = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=8`;
-    if (pexelsOrient) u += `&orientation=${pexelsOrient}`;
-    const r = await fetch(u, { headers: { Authorization: env.PEXELS_KEY } });
-    if (r.ok) {
-      const data = await r.json();
-      (data.videos || []).forEach(v => {
-        const file = (v.video_files || []).filter(f=>nyxMediaMatches(format,f.width,f.height)).sort((a,b)=>(b.width||0)-(a.width||0))[0];
-        if (file) results.push({
-          width:file.width, height:file.height, id: 'b_' + v.id, type: 'video',
-          previewUrl: mediaProxyUrl(v.image, token),
-          videoUrl: mediaProxyUrl(file.link, token),
-          downloadUrl: mediaProxyUrl(file.link, token, { download: true, name: `nyxia-video-${v.id}.mp4` }),
-          credit: 'NyXia'
-        });
-      });
-    }
-  } catch (e) {}
-
-  return json({ success: true, results });
-}
-
-async function handleMediaSounds(request, env) {
-  const { token, query } = await request.json();
-  const session = await getSessionOrNull(token, env);
-  if (!session) return json({ error: 'Session expirée.' }, 401);
-  if (!query) return json({ error: 'Recherche requise.' }, 400);
-
-  const results = [];
-  try {
-    const r = await fetch(`https://freesound.org/apiv2/search/text/?query=${encodeURIComponent(query)}&token=${env.FREESOUND_API_KEY}&fields=id,name,previews,duration&page_size=15`);
-    if (r.ok) {
-      const data = await r.json();
-      (data.results || []).forEach(s => {
-        const preview = s.previews ? (s.previews['preview-hq-mp3'] || s.previews['preview-lq-mp3']) : null;
-        if (preview) {
-          const safeName = (s.name || 'son').replace(/[^a-z0-9\-_]/gi, '_').slice(0, 40);
-          results.push({
-            id: 'd_' + s.id, type: 'sound', name: s.name,
-            audioUrl: mediaProxyUrl(preview, token),
-            downloadUrl: mediaProxyUrl(preview, token, { download: true, name: `nyxia-son-${safeName}.mp3` }),
-            duration: Math.round(s.duration), credit: 'NyXia'
-          });
-        }
-      });
-    }
-  } catch (e) {}
-
-  return json({ success: true, results });
-}
-
+async function handleMediaImages(request,env){return nyxMediaSearch(request,env,'image');}
+async function handleMediaVideos(request,env){return nyxMediaSearch(request,env,'video');}
+async function handleMediaSounds(request,env){return nyxMediaSearch(request,env,'sound');}
 function nyxMediaTarget(raw){
   try{const u=new URL(raw);return u.protocol==='https:'&&!u.username&&!u.password&&(!u.port||u.port==='443')&&MEDIA_ALLOWED_HOSTS.some(h=>u.hostname===h||u.hostname.endsWith('.'+h))?u:null;}catch{return null;}
 }
