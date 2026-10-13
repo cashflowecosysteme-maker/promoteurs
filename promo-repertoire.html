@@ -137,12 +137,6 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
       +(sale?(' <a class="btn gold-action" href="'+esc(sale)+'" target="_blank" rel="noopener">Voir l’offre</a>'):'')
       +' <button type="button" class="btn" data-detail="'+i+'">En Savoir Plus</button>'
       +(offer?(' <a class="btn" href="'+esc(offer)+'" target="_blank" rel="noopener">Rejoindre le Cercle</a>'):'')
-      +(sale?('<div class="commercial-link" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">'
-        +'<div style="font-size:13px;color:#fff;margin-bottom:6px">Page de vente du portail · Achat ou rendez-vous</div>'
-        +'<code>'+esc(sale)+'</code>'
-        +'<button type="button" class="btn btn-main" data-copy="'+esc(sale)+'">Copier le lien de vente ou de rendez-vous</button> '
-        +'<a class="btn" href="'+esc(sale)+'" target="_blank" rel="noopener">Ouvrir la page de vente ou de rendez-vous</a>'
-        +'</div>'):'')
       +'</div>';
   }).join('');
   box.querySelectorAll('[data-detail]').forEach(function(btn){btn.onclick=function(){openDetails(products[Number(btn.dataset.detail)]);};});
