@@ -426,7 +426,7 @@ async function handleStats(request, env) {
   const clicks = await nyxPersonalClicks(env,code);
 
   // Gains : table commissions (schéma partagé — colonne beneficiary_id + product_id)
-  let gains = 0, pending = 0, gains_by_product = [];
+  let gains = 0, pending = 0, gains_by_product = [], sales = [], recruits = [];
   try {
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS commissions (
       id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, seller_id TEXT,
@@ -446,7 +446,7 @@ async function handleStats(request, env) {
                 COALESCE(p.title, 'Produit supprimé') AS title,
                 COALESCE(SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END), 0) AS paid,
                 COALESCE(SUM(CASE WHEN c.status = 'pending' THEN c.amount ELSE 0 END), 0) AS pending,
-                COUNT(*) AS ventes
+                COUNT(DISTINCT COALESCE(NULLIF(c.sale_id, ''), c.id)) AS ventes
          FROM commissions c
          LEFT JOIN marketplace_products p ON p.id = c.product_id
          WHERE c.beneficiary_id = ?
@@ -458,7 +458,32 @@ async function handleStats(request, env) {
         paid: Number(r.paid || 0), pending: Number(r.pending || 0), ventes: Number(r.ventes || 0)
       }));
     }
-  } catch (e) { console.error('stats gains', e); }
+      const history = await env.DB.prepare(
+        `SELECT c.id, c.sale_id, c.product_id, COALESCE(p.title, 'Produit non identifié') AS product_title,
+                c.amount, c.currency, c.status, c.level, c.sale_amount, c.created_at, c.buyer_email,
+                COALESCE(NULLIF(c.buyer_name,''),
+                  (SELECT NULLIF(u.full_name,'') FROM users u WHERE lower(u.email) = lower(c.buyer_email) ORDER BY u.created_at DESC LIMIT 1), '') AS buyer_name
+         FROM commissions c LEFT JOIN marketplace_products p ON p.id = c.product_id
+         WHERE c.beneficiary_id = ? ORDER BY c.created_at DESC, c.id DESC LIMIT 100`
+      ).bind(userId).all();
+      sales = history.results || [];
+      const recruitment = await env.DB.prepare(
+        `WITH RECURSIVE team(id, full_name, created_at, parent_id, level, path) AS (
+           SELECT id, full_name, created_at, parent_id, 1, ',' || id || ',' FROM users WHERE parent_id = ? AND id <> ?
+           UNION ALL
+           SELECT u.id, u.full_name, u.created_at, u.parent_id, t.level + 1, t.path || u.id || ','
+           FROM users u JOIN team t ON u.parent_id = t.id
+           WHERE t.level < 3 AND instr(t.path, ',' || u.id || ',') = 0 AND u.id <> ?
+         ) SELECT t.id, t.full_name, t.created_at, t.level, p.full_name AS sponsor_name
+           FROM team t LEFT JOIN users p ON p.id = t.parent_id ORDER BY t.created_at DESC, t.id DESC`
+      ).bind(userId, userId, userId).all();
+      recruits = recruitment.results || [];
+      team_total = recruits.length;
+      team_n1 = recruits.filter(r => Number(r.level) === 1).length;
+  } catch (e) {
+    console.error('stats gains', e);
+    return json({success:false,error:'Impossible de charger tes ventes et commissions. Réessaie dans un instant.'},500);
+  }
 
   // Global (super / admin vue large)
   let users_total = 0, affiliates_total = 0, admins_total = 0;
@@ -476,7 +501,7 @@ async function handleStats(request, env) {
     products_total, products_active, products_draft,
     team_n1, team_total,
     clicks,
-    gains, pending, gains_by_product,
+    gains, pending, gains_by_product, sales, recruits,
     users_total, affiliates_total, admins_total,
     code: code || null,
     userId: userId || null
@@ -1380,7 +1405,6 @@ export default {
     try { if (env.DB) await ensureSchema(env); } catch (e) { console.error("schema", e); }
 const url = new URL(request.url);
     const path = url.pathname;
-    if(path==='/api/webhooks/studio-abonnement'&&request.method==='POST')return await nyxStudioSaleWebhook(request,env);
     if(path==='/api/share-products' && request.method==='GET') {
       const session=await getSessionOrNull(request.headers.get('X-Cercle-Token')||'',env);
       if(!session)return json({error:'Session expirée. Reconnecte-toi.'},401);
@@ -3170,7 +3194,7 @@ async function nyxEnsureCommissionSchema(env) {
   )`).run();
   let info=await env.DB.prepare('PRAGMA table_info(commissions)').all();
   const columns=new Set((info.results || []).map(c=>c.name));
-  const expected=[['sale_id','TEXT'],['product_id','TEXT'],['seller_id','TEXT'],['beneficiary_id','TEXT'],['beneficiary_code','TEXT'],['level','INTEGER'],['amount','REAL'],['currency','TEXT'],['status','TEXT'],['buyer_email','TEXT'],['ref_code','TEXT'],['source','TEXT'],['created_at','TEXT'],['paid_at','TEXT'],['rate_percent','REAL'],['sale_amount','REAL'],['rate_source','TEXT']];
+  const expected=[['buyer_name','TEXT'],['sale_id','TEXT'],['product_id','TEXT'],['seller_id','TEXT'],['beneficiary_id','TEXT'],['beneficiary_code','TEXT'],['level','INTEGER'],['amount','REAL'],['currency','TEXT'],['status','TEXT'],['buyer_email','TEXT'],['ref_code','TEXT'],['source','TEXT'],['created_at','TEXT'],['paid_at','TEXT'],['rate_percent','REAL'],['sale_amount','REAL'],['rate_source','TEXT']];
   for(const [name,type] of expected) {
     if(columns.has(name))continue;
     try{await env.DB.prepare('ALTER TABLE commissions ADD COLUMN '+name+' '+type).run()}
@@ -3182,105 +3206,3 @@ async function nyxEnsureCommissionSchema(env) {
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_comm_benef ON commissions(beneficiary_id)').run();
 }
 
-
-async function resolveChainByRef(env, refCode) {
-  // Retourne [beneficiaire n1, n2, n3] users
-  if (!refCode || !env.DB) return [];
-  const u1 = await env.DB.prepare(
-    `SELECT id, email, full_name, role, affiliate_code, parent_id FROM users WHERE affiliate_code = ? LIMIT 1`
-  ).bind(String(refCode).toUpperCase()).first();
-  if (!u1) return [];
-  const chain = [u1];
-  let parentId = u1.parent_id;
-  for (let i = 0; i < 2 && parentId; i++) {
-    const p = await env.DB.prepare(
-      `SELECT id, email, full_name, role, affiliate_code, parent_id FROM users WHERE id = ?`
-    ).bind(parentId).first();
-    if (!p) break;
-    chain.push(p);
-    parentId = p.parent_id;
-  }
-  return chain;
-}
-
-/**
- * Écrit les commissions d'une vente.
- * seller_id = qui DOIT payer (Admin propriétaire du produit, ou superadmin)
- * ref = code du promoteur qui a amené la vente
- */
-async function writeSaleCommissions(env, {sellerId,productId,amount,buyerEmail,refCode,source,externalId,currency='CAD'}) {
-  await nyxEnsureCommissionSchema(env);
-  await nyxCommissionSchema(env);
-  const product = await env.DB.prepare('SELECT id,seller_id,commission_n1,commission_n2,commission_n3 FROM marketplace_products WHERE id = ?').bind(productId || '').first();
-  if (!product) throw new Error('Produit introuvable : aucune commission enregistrée.');
-  const owner = String(product.seller_id || 'superadmin');
-  if (owner.toLowerCase() !== String(sellerId).toLowerCase()) throw new Error('Le vendeur ne correspond pas au propriétaire du produit.');
-  if (!externalId) throw new Error('Identifiant de vente requis.');
-  const total = Number(amount);
-  if (!Number.isFinite(total) || total < 0) throw new Error('Montant de vente invalide.');
-  const encoded = new TextEncoder().encode(JSON.stringify([owner,product.id,String(externalId)]));
-  const hash = await crypto.subtle.digest('SHA-256',encoded);
-  const saleId = 'sale_' + [...new Uint8Array(hash)].map(n=>n.toString(16).padStart(2,'0')).join('');
-  const existing = await env.DB.prepare('SELECT id FROM commission_sales WHERE id = ?').bind(saleId).first();
-  if (existing) return {saleId,duplicate:true,commissions:[]};
-  const now = new Date().toISOString(), attempt = crypto.randomUUID();
-  const chain = await resolveChainByRef(env,refCode);
-  const statements = [env.DB.prepare(`INSERT OR IGNORE INTO commission_sales (id,seller_id,product_id,external_id,amount,currency,attempt,created_at) VALUES (?,?,?,?,?,?,?,?)`).bind(saleId,owner,product.id,String(externalId),total,currency,attempt,now)];
-  const created = [], seen = new Set();
-  for (let i=0;i<Math.min(chain.length,3);i++) {
-    const benef = chain[i];
-    if (seen.has(benef.id)) break;
-    seen.add(benef.id);
-    const override = await env.DB.prepare('SELECT commission_n1,commission_n2,commission_n3 FROM commission_overrides WHERE product_id = ? AND beneficiary_id = ?').bind(product.id,benef.id).first();
-    const key = 'commission_n'+(i+1);
-    const personal = override && override[key] != null;
-    const pct = nyxRate(personal ? override[key] : product[key]) ?? 0;
-    const commissionAmount = Math.round(total*pct)/100;
-    if (commissionAmount <= 0) continue;
-    const id = saleId+'_'+(i+1);
-    statements.push(env.DB.prepare(`INSERT INTO commissions (id,sale_id,product_id,seller_id,beneficiary_id,beneficiary_code,level,amount,currency,status,buyer_email,ref_code,source,created_at,paid_at,rate_percent,sale_amount,rate_source) SELECT ?,?,?,?,?,?,?,?,?,'pending',?,?,?,?,NULL,?,?,? WHERE EXISTS (SELECT 1 FROM commission_sales WHERE id = ? AND attempt = ?)`).bind(id,saleId,product.id,owner,benef.id,benef.affiliate_code || null,i+1,commissionAmount,currency,(buyerEmail || '').toLowerCase() || null,(refCode || '').toUpperCase() || null,source || 'webhook',now,pct,total,personal?'personal':'product',saleId,attempt));
-    created.push({id,level:i+1,beneficiary_id:benef.id,amount:commissionAmount,rate_percent:pct,rate_source:personal?'personal':'product'});
-  }
-  const results = await env.DB.batch(statements);
-  const duplicate = !results[0].meta?.changes;
-  return {saleId,duplicate,commissions:duplicate?[]:created,chain_length:chain.length};
-}
-
-
-
-const NYX_STUDIO_SALE_KEY = '3e3a45acbdbcb67318447a743b80d3574fd5b162af6b37a1';
-function nyxStudioSaleFields(raw){
- const out={};if(Array.isArray(raw))for(const f of raw){if(f)out[f.slug||f.fieldName||f.name||'']=f.value;}else if(raw&&typeof raw==='object')Object.assign(out,raw);return out;
-}
-function nyxStudioSaleInput(body,request){
- const d=body.data||body,c=d.customer||body.customer||{},plan=d.offer_price_plan||d.pricePlan||d.offerPricePlan||{},order=d.order||body.order||{};
- const type=String(body.type||request.headers.get('X-Webhook-Event')||'');
- if(!['customer.sale.completed','SALE_NEW','NEW_SALE'].includes(type))return {ignored:true};
- const fields=nyxStudioSaleFields(c.fields);
- let ref=String(d.ref||body.ref||fields.ref||fields.referral_code||fields.nyxia_ref||c.ref||'').trim().toUpperCase();
- if(!ref){try{ref=new URL(c.sourceUrl||c.sourceURL||c.source_url||'').searchParams.get('ref')||'';}catch(_){}}
- const raw=Number(plan.direct_charge_amount??plan.amount);
- if(![69,6900,497,49700].includes(raw))throw Error('Tarif non reconnu : ce webhook accepte seulement Studio Prompt 69 $/mois ou 497 $/an.');
- // Les formats historiques et actuels sont normalisés uniquement pour ces tarifs précis.
- const amount=raw===6900?69:raw===49700?497:raw;
- const externalId=String(d.transaction?.id||d.payment?.id||request.headers.get('X-Webhook-Message-Id')||d.order_item?.id||d.orderItem?.id||order.id||'').trim();
- if(!externalId)throw Error('Identifiant de paiement absent.');
- const currency=String(plan.currency||d.currency||'').toUpperCase();if(currency!=='CAD')throw Error('Devise différente de CAD : traitement refusé.');
- return {email:String(c.email||d.email||'').trim().toLowerCase(),ref:String(ref).trim().toUpperCase(),amount,externalId,currency};
-}
-async function nyxStudioSaleWebhook(request,env){
- if(new URL(request.url).searchParams.get('key')!==NYX_STUDIO_SALE_KEY)return json({error:'Clé invalide.'},401);
- if(!env.DB)return json({error:'Base absente.'},500);
- let input;try{input=nyxStudioSaleInput(await request.json(),request);}catch(e){return json({error:e.message},422);}
- if(input.ignored)return json({success:true,ignored:true});
- if(!input.email)return json({error:'Courriel acheteur absent.'},422);
- await ensureSchema(env);await nyxEnsureCommissionSchema(env);await nyxCommissionSchema(env);
- const rows=await env.DB.prepare('SELECT id,title,seller_id FROM marketplace_products').all();
- const products=(rows.results||[]).filter(p=>String(p.seller_id||'superadmin').toLowerCase()==='superadmin'&&/studio\s*prompt/i.test(String(p.title||'')));
- if(products.length!==1)return json({error:'Le produit Super Admin Studio Prompt doit être identifié sans ambiguïté.',matching_products:products.map(p=>({id:p.id,title:p.title}))},422);
- if(!input.ref){const buyer=await env.DB.prepare('SELECT p.affiliate_code FROM users u JOIN users p ON p.id=u.parent_id WHERE lower(u.email)=? AND u.parent_id IS NOT NULL').bind(input.email).all();const codes=[...new Set((buyer.results||[]).map(x=>x.affiliate_code).filter(Boolean))];if(codes.length===1)input.ref=codes[0];}
- if(!input.ref)return json({error:'Empreinte absente : aucune commission créée. Le paiement reste à attribuer.'},422);
- const chain=await resolveChainByRef(env,input.ref);if(!chain.length)return json({error:'Empreinte promoteur inconnue : aucune commission créée.'},422);
- const result=await writeSaleCommissions(env,{sellerId:'superadmin',productId:products[0].id,amount:input.amount,buyerEmail:input.email,refCode:input.ref,source:'studio_abonnement_systeme',externalId:input.externalId,currency:input.currency});
- return json({success:true,ref:input.ref,amount:input.amount,...result});
-}
