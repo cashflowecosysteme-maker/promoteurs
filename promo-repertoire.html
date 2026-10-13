@@ -35,7 +35,7 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
 <p class="sub">Chaque lien porte <strong style="color:#fff">ton code unique</strong> — c’est ainsi qu’on sait qui a fait la promotion et qui doit être relié aux revenus.</p>
 <div class="badge" id="codeBadge">Code : …</div>
 <div id="list" class="empty">Chargement…</div>
-<dialog id="product-detail" aria-labelledby="detail-title"><button type="button" class="detail-close" id="detail-close" aria-label="Fermer">×</button><p style="color:#ffe48a">💜 PRODUIT DU CERCLE</p><h2 id="detail-title"></h2><img id="detail-image" alt=""><div class="detail-text" id="detail-text"></div><div id="detail-rates"></div><p class="detail-invite">💜 Rejoins immédiatement le Cercle d’entraide ! L’inscription est gratuite.</p><div class="detail-actions"><a class="btn gold-action" id="detail-offer" target="_blank" rel="noopener">Voir l’offre</a><a class="btn" id="detail-join" target="_blank" rel="noopener">Rejoindre le Cercle</a><a class="btn" href="/login.html" target="_blank" rel="noopener">Déjà membre ?</a></div></dialog>
+<dialog id="product-detail" aria-labelledby="detail-title"><button type="button" class="detail-close" id="detail-close" aria-label="Fermer">×</button><p style="color:#ffe48a">💜 PRODUIT DU CERCLE</p><h2 id="detail-title"></h2><img id="detail-image" alt=""><div class="detail-text" id="detail-text"></div><div id="detail-rates"></div><p class="detail-invite">💜 Rejoins immédiatement le Cercle d’entraide ! L’inscription est gratuite.</p><div class="detail-actions"><a class="btn" id="detail-offer" target="_blank" rel="noopener">Voir l’offre</a><a class="btn" id="detail-join" target="_blank" rel="noopener">Rejoindre le Cercle</a><a class="btn" href="/login.html" target="_blank" rel="noopener">Déjà membre ?</a></div></dialog>
 <script>
 (async function(){
   var token=(function(){try{var q=new URLSearchParams(location.search);var t=q.get('t');if(t){sessionStorage.setItem('nyxia_token',t);return t;}}catch(e){}return sessionStorage.getItem('nyxia_token')||'';})();
@@ -73,6 +73,16 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
     if(!p.affiliate_link) return '';
     try{var u=new URL(p.affiliate_link);if(!['https:','http:'].includes(u.protocol))return '';return withRef(u.href,code);}catch(e){return '';}
   }
+  function saleLink(p,code){
+    var base=p.portal_index_url||'';
+    if(!base){
+      try{var u=new URL(p.affiliate_link||'');
+        if(u.protocol==='https:'&&/^portail[a-z0-9-]*\.nyxia\.top$/i.test(u.hostname))base=u.origin+'/';
+      }catch(e){}
+    }
+    if(!base)return '';
+    try{var u=new URL(base);return u.protocol==='https:'?withRef(u.href,code):'';}catch(e){return '';}
+  }
   function actionLabel(p){return p.offer_action==='buy'?'Acheter':p.offer_action==='appointment'?'Prendre un rendez-vous':'Voir l’offre';}
   function openDetails(p){
     var dialog=document.getElementById('product-detail');
@@ -81,8 +91,8 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
     document.getElementById('detail-rates').innerHTML=commissionRates(p);
     var img=document.getElementById('detail-image');var image='';try{var u=new URL(p.image_url);if(['https:','http:'].includes(u.protocol))image=u.href;}catch(e){}
     img.hidden=!image;if(image){img.src=image;img.alt=p.title||'';}
-    var offer=document.getElementById('detail-offer'),url=offerLink(p,myCode);offer.hidden=!url;if(url)offer.href=url;offer.textContent=actionLabel(p);
-    document.getElementById('detail-join').href=location.origin+'/cercle-entraide.html?ref='+encodeURIComponent(myCode);
+    var offer=document.getElementById('detail-offer'),url=saleLink(p,myCode);offer.hidden=!url;if(url)offer.href=url;offer.textContent='Voir l’offre';
+    var join=document.getElementById('detail-join'),joinUrl=offerLink(p,myCode);join.hidden=!joinUrl;if(joinUrl)join.href=joinUrl;
     dialog.showModal();
   }
   document.getElementById('detail-close').onclick=function(){document.getElementById('product-detail').close();};
@@ -109,6 +119,7 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
   box.innerHTML=products.map(function(p,i){
     var promo=shareLink(p, myCode);
     var offer=offerLink(p, myCode);
+    var sale=saleLink(p,myCode);
     return '<div class="card">'
       +'<h3>'+esc(p.title)+'</h3>'
       +'<div class="price">'+money(p.price)+'</div>'
@@ -117,12 +128,14 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
       +'<code>'+esc(promo)+'</code>'
       +'<button type="button" class="btn btn-main" data-copy="'+esc(promo)+'">Copier mon lien</button> '
       +'<button type="button" class="btn" data-detail="'+i+'">En Savoir Plus</button>'
-      +(offer?('<div class="commercial-link" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">'
-        +'<div style="font-size:13px;color:#fff;margin-bottom:6px">Lien direct de l’offre · Vente ou rendez-vous</div>'
-        +'<code>'+esc(offer)+'</code>'
-        +'<button type="button" class="btn btn-main" data-copy="'+esc(offer)+'">Copier le lien de vente ou de rendez-vous</button> '
-        +'<a class="btn" href="'+esc(offer)+'" target="_blank" rel="noopener">Ouvrir la page de vente ou de rendez-vous</a>'
-        +'</div>'):'<p style="margin-top:14px;color:#ffe48a">Le lien direct de cette offre doit être renseigné dans son éditeur.</p>')
+      +(sale?(' <a class="btn" href="'+esc(sale)+'" target="_blank" rel="noopener">Voir l’offre</a>'):'')
+      +(offer?(' <a class="btn" href="'+esc(offer)+'" target="_blank" rel="noopener">Rejoindre le Cercle</a>'):'')
+      +(sale?('<div class="commercial-link" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">'
+        +'<div style="font-size:13px;color:#fff;margin-bottom:6px">Page de vente du portail · Achat ou rendez-vous</div>'
+        +'<code>'+esc(sale)+'</code>'
+        +'<button type="button" class="btn btn-main" data-copy="'+esc(sale)+'">Copier le lien de vente ou de rendez-vous</button> '
+        +'<a class="btn" href="'+esc(sale)+'" target="_blank" rel="noopener">Ouvrir la page de vente ou de rendez-vous</a>'
+        +'</div>'):'')
       +'</div>';
   }).join('');
   box.querySelectorAll('[data-detail]').forEach(function(btn){btn.onclick=function(){openDetails(products[Number(btn.dataset.detail)]);};});
