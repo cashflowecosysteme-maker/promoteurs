@@ -73,16 +73,8 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
     if(!p.affiliate_link) return '';
     try{var u=new URL(p.affiliate_link);if(!['https:','http:'].includes(u.protocol))return '';return withRef(u.href,code);}catch(e){return '';}
   }
-  function saleLink(p,code){
-    var base=p.portal_index_url||'';
-    if(!base){
-      try{var u=new URL(p.affiliate_link||'');
-        if(u.protocol==='https:'&&/^portail[a-z0-9-]*\.nyxia\.top$/i.test(u.hostname))base=u.origin+'/';
-      }catch(e){}
-    }
-    if(!base)return '';
-    try{var u=new URL(base);return u.protocol==='https:'?withRef(u.href,code):'';}catch(e){return '';}
-  }
+  function saleLink(p,code){return offerLink(p,code);}
+  function joinLink(code){return withRef('https://promoteurs.nyxia.top/cercle-entraide',code);}
   function actionLabel(p){return p.offer_action==='buy'?'Acheter':p.offer_action==='appointment'?'Prendre un rendez-vous':'Voir l’offre';}
   function openDetails(p){
     var dialog=document.getElementById('product-detail');
@@ -92,7 +84,7 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
     var img=document.getElementById('detail-image');var image='';try{var u=new URL(p.image_url);if(['https:','http:'].includes(u.protocol))image=u.href;}catch(e){}
     img.hidden=!image;if(image){img.src=image;img.alt=p.title||'';}
     var offer=document.getElementById('detail-offer'),url=saleLink(p,myCode);offer.hidden=!url;if(url)offer.href=url;offer.textContent='Voir l’offre';
-    var join=document.getElementById('detail-join'),joinUrl=offerLink(p,myCode);join.hidden=!joinUrl;if(joinUrl)join.href=joinUrl;
+    var join=document.getElementById('detail-join'),joinUrl=joinLink(myCode);join.hidden=!joinUrl;if(joinUrl)join.href=joinUrl;
     dialog.showModal();
   }
   document.getElementById('detail-close').onclick=function(){document.getElementById('product-detail').close();};
@@ -118,7 +110,7 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
   box.className='';
   box.innerHTML=products.map(function(p,i){
     var promo=shareLink(p, myCode);
-    var offer=offerLink(p, myCode);
+    var offer=joinLink(myCode);
     var sale=saleLink(p,myCode);
     return '<div class="card">'
       +'<h3>'+esc(p.title)+'</h3>'
