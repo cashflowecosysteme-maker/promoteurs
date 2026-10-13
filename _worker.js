@@ -1459,6 +1459,7 @@ const url = new URL(request.url);
 
       // ── Répertoire des Médias Magiques ──
       if (path === '/api/media/images' && request.method === 'POST') return await handleMediaImages(request, env);
+      if (path === '/api/media/videos' && request.method === 'POST') return await handleMediaVideos(request, env);
       if (path === '/api/media/sounds' && request.method === 'POST') return await handleMediaSounds(request, env);
       if (path === '/api/media/file' && request.method === 'GET') return await handleMediaFile(request, env, url);
 
@@ -2590,169 +2591,98 @@ async function handleAdminSendMessage(request, env) {
   return json({ success: true, sentTo: 1 });
 }
 
-// ───────────── RÉPERTOIRE DES MÉDIAS MAGIQUES ─────────────
-// Agrège Pexels + Unsplash (images/vidéos) et Freesound (sons) sous une
-// bannière unique "NyXia". Toutes les URLs renvoyées au navigateur passent
-// par /api/media/file — le domaine du fournisseur n'est JAMAIS exposé,
-// ni dans l'affichage, ni dans les liens, ni dans les réponses JSON.
-
-const MEDIA_ALLOWED_HOSTS = [
-  'images.pexels.com', 'videos.pexels.com',
-  'images.unsplash.com',
-  'cdn.freesound.org', 'freesound.org',
-  'heygen.ai'
-];
-
-function mediaProxyUrl(rawUrl, token, opts) {
-  opts = opts || {};
-  let q = `/api/media/file?u=${encodeURIComponent(rawUrl)}&token=${encodeURIComponent(token)}`;
-  if (opts.download) q += '&dl=1';
-  if (opts.name) q += `&name=${encodeURIComponent(opts.name)}`;
+// Banque Média : Images / Vidéos / Sons, sources regroupées dans l’interface NyXia.
+const MEDIA_ALLOWED_HOSTS = ['images.pexels.com','videos.pexels.com','images.unsplash.com','cdn.pixabay.com','pixabay.com','i.vimeocdn.com','cdn.freesound.org','freesound.org','heygen.ai'];
+function mediaProxyUrl(rawUrl, token, opts={}) {
+  let q='/api/media/file?u='+encodeURIComponent(rawUrl)+'&token='+encodeURIComponent(token);
+  if(opts.download)q+='&dl=1';
+  if(opts.name)q+='&name='+encodeURIComponent(opts.name);
   return q;
 }
-
-// Traduit le format choisi par la Gardienne en paramètre d'orientation propre à chaque source
-function orientationFor(format, provider) {
-  if (format === 'square') return provider === 'unsplash' ? 'squarish' : 'square';
-  if (format === 'portrait') return 'portrait';
-  if (format === 'landscape') return 'landscape';
-  return null;
+function nyxMediaRatio(format){return {'square':1,'1:1':1,'portrait':9/16,'9:16':9/16,'landscape':16/9,'16:9':16/9,'4:5':4/5,'3:2':3/2}[format]||0;}
+function nyxMediaMatches(format,w,h){const ratio=nyxMediaRatio(format);return !ratio || (Number(w)>0&&Number(h)>0&&Math.abs(Number(w)/Number(h)/ratio-1)<=.015);}
+function orientationFor(format,provider){const r=nyxMediaRatio(format);return r===1?(provider==='unsplash'?'squarish':'square'):r>1?'landscape':r?'portrait':null;}
+async function nyxMediaProvider(url,headers){
+  const r=await fetch(url,{headers,signal:AbortSignal.timeout(12000)});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  return r.json();
 }
-
-async function handleMediaImages(request, env) {
-  const { token, query, format } = await request.json();
-  const session = await getSessionOrNull(token, env);
-  if (!session) return json({ error: 'Session expirée.' }, 401);
-  if (!query) return json({ error: 'Recherche requise.' }, 400);
-
-  const results = [];
-  const pexelsOrient = orientationFor(format, 'pexels');
-  const unsplashOrient = orientationFor(format, 'unsplash');
-
-  // Source 1 — photos
-  try {
-    let u = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=12`;
-    if (pexelsOrient) u += `&orientation=${pexelsOrient}`;
-    const r = await fetch(u, { headers: { Authorization: env.PEXELS_KEY } });
-    if (r.ok) {
-      const data = await r.json();
-      (data.photos || []).forEach(p => {
-        results.push({
-          id: 'a_' + p.id, type: 'image',
-          previewUrl: mediaProxyUrl(p.src.medium, token),
-          downloadUrl: mediaProxyUrl(p.src.large, token, { download: true, name: `nyxia-image-${p.id}.jpg` }),
-          credit: 'NyXia'
-        });
-      });
-    }
-  } catch (e) {}
-
-  // Source 1 — vidéos
-  try {
-    let u = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=8`;
-    if (pexelsOrient) u += `&orientation=${pexelsOrient}`;
-    const r = await fetch(u, { headers: { Authorization: env.PEXELS_KEY } });
-    if (r.ok) {
-      const data = await r.json();
-      (data.videos || []).forEach(v => {
-        const file = (v.video_files || []).find(f => f.quality === 'sd') || (v.video_files || [])[0];
-        if (file) results.push({
-          id: 'b_' + v.id, type: 'video',
-          previewUrl: mediaProxyUrl(v.image, token),
-          videoUrl: mediaProxyUrl(file.link, token),
-          downloadUrl: mediaProxyUrl(file.link, token, { download: true, name: `nyxia-video-${v.id}.mp4` }),
-          credit: 'NyXia'
-        });
-      });
-    }
-  } catch (e) {}
-
-  // Source 2 — photos
-  try {
-    let u = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=12`;
-    if (unsplashOrient) u += `&orientation=${unsplashOrient}`;
-    const r = await fetch(u, { headers: { Authorization: `Client-ID ${env.UNSPLASH_KEY}` } });
-    if (r.ok) {
-      const data = await r.json();
-      (data.results || []).forEach(p => {
-        results.push({
-          id: 'c_' + p.id, type: 'image',
-          previewUrl: mediaProxyUrl(p.urls.small, token),
-          downloadUrl: mediaProxyUrl(p.urls.regular, token, { download: true, name: `nyxia-image-${p.id}.jpg` }),
-          credit: 'NyXia'
-        });
-      });
-    }
-  } catch (e) {}
-
-  // Mélange pour que ce soit une seule banque homogène, jamais groupée par source
-  for (let i = results.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [results[i], results[j]] = [results[j], results[i]];
+async function nyxMediaSearch(request,env,kind){
+  const b=await request.json().catch(()=>({}));const token=b.token||request.headers.get('X-Cercle-Token')||'';
+  if(!await getSessionOrNull(token,env))return json({error:'Session expirée. Reconnecte-toi.'},401);
+  const q=String(b.query||'').trim().slice(0,200),format=String(b.format||'');
+  if(!q)return json({error:'Indique un mot pour lancer la recherche.'},400);
+  if(format && !nyxMediaRatio(format))return json({error:'Format inconnu.'},400);
+  if(kind==='video' && !['','portrait','landscape','square','9:16','16:9','1:1'].includes(format))return json({error:'Format vidéo inconnu.'},400);
+  const results=[],seen=new Set(),jobs=[];let missing=0,failed=0,completed=0;
+  const add=item=>{if(kind!=='sound'&&!nyxMediaMatches(format,item.width,item.height))return;const key=item.downloadUrl;if(!key||seen.has(key))return;seen.add(key);results.push(item);};
+  const run=(key,fn)=>{if(!key){missing++;return;}jobs.push((async()=>{try{await fn(key);completed++;}catch(e){failed++;console.error('MEDIA_PROVIDER_FAILED',kind,String(e.message||e));}})());};
+  const pexels=env.PEXELS_KEY||env.PEXELS_API_KEY, pixImage=env.PIXABAY_KEY_IMAGES||env.PIXABAY_KEY||env.PIXABAY_API_KEY,pixVideo=env.PIXABAY_KEY_VIDEO||env.PIXABAY_KEY||env.PIXABAY_API_KEY;
+  const orient=orientationFor(format,'pexels');
+  if(kind==='image'){
+    run(pexels,async key=>{
+      let u='https://api.pexels.com/v1/search?per_page=30&query='+encodeURIComponent(q);if(orient)u+='&orientation='+orient;
+      const d=await nyxMediaProvider(u,{Authorization:String(key)});
+      for(const p of d.photos||[]){const src=p.src||{},file=src.original||src.large2x||src.large;if(file)add({type:'image',width:p.width,height:p.height,previewUrl:mediaProxyUrl(src.medium||file,token),downloadUrl:mediaProxyUrl(file,token,{download:true,name:'nyxia-image-'+p.id+'.jpg'})});}
+    });
+    run(pixImage,async key=>{
+      const r=nyxMediaRatio(format);const orientation=r>1?'horizontal':r&&r<1?'vertical':'all';
+      const d=await nyxMediaProvider('https://pixabay.com/api/?key='+encodeURIComponent(key)+'&q='+encodeURIComponent(q)+'&per_page=30&safesearch=true&orientation='+orientation,{});
+      for(const p of d.hits||[]){const file=p.largeImageURL||p.webformatURL;if(file)add({type:'image',width:p.imageWidth,height:p.imageHeight,previewUrl:mediaProxyUrl(p.webformatURL||file,token),downloadUrl:mediaProxyUrl(file,token,{download:true,name:'nyxia-image-'+p.id+'.jpg'})});}
+    });
+    run(env.UNSPLASH_ACCES_KEY||env.UNSPLASH_ACCESS_KEY||env.UNSPLASH_KEY,async key=>{
+      let u='https://api.unsplash.com/search/photos?per_page=30&query='+encodeURIComponent(q);const o=orientationFor(format,'unsplash');if(o)u+='&orientation='+o;
+      const d=await nyxMediaProvider(u,{Authorization:'Client-ID '+key});
+      for(const p of d.results||[]){const src=p.urls||{},file=src.full||src.regular;if(file)add({type:'image',width:p.width,height:p.height,previewUrl:mediaProxyUrl(src.small||file,token),downloadUrl:mediaProxyUrl(file,token,{download:true,name:'nyxia-image-'+p.id+'.jpg'})});}
+    });
+  }else if(kind==='video'){
+    run(pexels,async key=>{
+      let u='https://api.pexels.com/videos/search?per_page=24&query='+encodeURIComponent(q);if(orient)u+='&orientation='+orient;
+      const d=await nyxMediaProvider(u,{Authorization:String(key)});
+      for(const p of d.videos||[]){const file=(p.video_files||[]).filter(f=>f.link&&(!f.file_type||f.file_type==='video/mp4')&&nyxMediaMatches(format,f.width,f.height)).sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];if(file)add({type:'video',width:file.width,height:file.height,previewUrl:p.image?mediaProxyUrl(p.image,token):'',videoUrl:mediaProxyUrl(file.link,token),downloadUrl:mediaProxyUrl(file.link,token,{download:true,name:'nyxia-video-'+p.id+'.mp4'})});}
+    });
+    run(pixVideo,async key=>{
+      const d=await nyxMediaProvider('https://pixabay.com/api/videos/?key='+encodeURIComponent(key)+'&q='+encodeURIComponent(q)+'&per_page=24&safesearch=true',{});
+      for(const p of d.hits||[]){const f=Object.values(p.videos||{}).filter(f=>f.url&&nyxMediaMatches(format,f.width,f.height)).sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];if(f)add({type:'video',width:f.width,height:f.height,previewUrl:p.picture_id?mediaProxyUrl('https://i.vimeocdn.com/video/'+encodeURIComponent(p.picture_id)+'_640x360.jpg',token):'',videoUrl:mediaProxyUrl(f.url,token),downloadUrl:mediaProxyUrl(f.url,token,{download:true,name:'nyxia-video-'+p.id+'.mp4'})});}
+    });
+  }else{
+    run(env.FREESOUND_API_KEY,async key=>{
+      const d=await nyxMediaProvider('https://freesound.org/apiv2/search/text/?query='+encodeURIComponent(q)+'&page_size=24&fields=id,name,previews,duration',{Authorization:'Token '+key});
+      for(const p of d.results||[]){const prev=p.previews||{},audio=prev['preview-hq-mp3']||prev['preview-lq-mp3']||prev['preview-hq-ogg'];if(audio)add({type:'sound',name:p.name||'Son',duration:Math.round(Number(p.duration||0)),audioUrl:mediaProxyUrl(audio,token),downloadUrl:mediaProxyUrl(audio,token,{download:true,name:'nyxia-son-'+p.id+(audio.includes('.ogg')?'.ogg':'.mp3')})});}
+    });
   }
-
-  return json({ success: true, results });
+  if(!jobs.length)return json({error:'La banque de ce type de média n’est pas encore configurée. Contacte l’équipe NyXia.'},503);
+  await Promise.all(jobs);
+  if(!completed)return json({error:'La recherche est temporairement indisponible. Réessaie dans quelques instants.'},502);
+  return json({success:true,results:results.slice(0,kind==='image'?60:36),warning:failed||missing?'Une partie de la banque est indisponible. Les résultats disponibles sont affichés.':''});
 }
-
-async function handleMediaSounds(request, env) {
-  const { token, query } = await request.json();
-  const session = await getSessionOrNull(token, env);
-  if (!session) return json({ error: 'Session expirée.' }, 401);
-  if (!query) return json({ error: 'Recherche requise.' }, 400);
-
-  const results = [];
-  try {
-    const r = await fetch(`https://freesound.org/apiv2/search/text/?query=${encodeURIComponent(query)}&token=${env.FREESOUND_API_KEY}&fields=id,name,previews,duration&page_size=15`);
-    if (r.ok) {
-      const data = await r.json();
-      (data.results || []).forEach(s => {
-        const preview = s.previews ? (s.previews['preview-hq-mp3'] || s.previews['preview-lq-mp3']) : null;
-        if (preview) {
-          const safeName = (s.name || 'son').replace(/[^a-z0-9\-_]/gi, '_').slice(0, 40);
-          results.push({
-            id: 'd_' + s.id, name: s.name,
-            audioUrl: mediaProxyUrl(preview, token),
-            downloadUrl: mediaProxyUrl(preview, token, { download: true, name: `nyxia-son-${safeName}.mp3` }),
-            duration: Math.round(s.duration), credit: 'NyXia'
-          });
-        }
-      });
+async function handleMediaImages(request,env){return nyxMediaSearch(request,env,'image');}
+async function handleMediaVideos(request,env){return nyxMediaSearch(request,env,'video');}
+async function handleMediaSounds(request,env){return nyxMediaSearch(request,env,'sound');}
+function nyxMediaTarget(raw){
+  try{const u=new URL(raw);return u.protocol==='https:'&&!u.username&&!u.password&&(!u.port||u.port==='443')&&MEDIA_ALLOWED_HOSTS.some(h=>u.hostname===h||u.hostname.endsWith('.'+h))?u:null;}catch{return null;}
+}
+async function handleMediaFile(request,env,url){
+  if(!await getSessionOrNull(url.searchParams.get('token'),env))return new Response('Session expirée.',{status:401});
+  let target=nyxMediaTarget(url.searchParams.get('u'));if(!target)return new Response('Source non autorisée.',{status:403});
+  const headers=new Headers();const range=request.headers.get('Range');if(range&&/^bytes=\d*-\d*$/.test(range))headers.set('Range',range);
+  let upstream;
+  try{
+    for(let i=0;i<5;i++){
+      upstream=await fetch(target.href,{headers,redirect:'manual',signal:AbortSignal.timeout(20000)});
+      if([301,302,303,307,308].includes(upstream.status)){
+        const next=nyxMediaTarget(new URL(upstream.headers.get('Location')||'',target).href);if(upstream.body)await upstream.body.cancel();
+        if(!next)return new Response('Source non autorisée.',{status:403});target=next;upstream=null;continue;
+      }break;
     }
-  } catch (e) {}
-
-  return json({ success: true, results });
-}
-
-// Proxy — récupère le média chez le fournisseur et le relaie sous le domaine NyXia.
-// Le navigateur ne voit jamais l'origine réelle (Pexels/Unsplash/Freesound).
-async function handleMediaFile(request, env, url) {
-  const token = url.searchParams.get('token');
-  const session = await getSessionOrNull(token, env);
-  if (!session) return new Response('Non autorisé', { status: 401 });
-
-  const raw = url.searchParams.get('u');
-  if (!raw) return new Response('Requête invalide', { status: 400 });
-
-  let target;
-  try { target = new URL(raw); } catch (e) { return new Response('URL invalide', { status: 400 }); }
-
-  const hostOk = MEDIA_ALLOWED_HOSTS.some(h => target.hostname === h || target.hostname.endsWith('.' + h));
-  if (!hostOk) return new Response('Source non autorisée', { status: 403 });
-
-  const upstream = await fetch(target.toString());
-  if (!upstream.ok || !upstream.body) return new Response('Média introuvable', { status: 502 });
-
-  const headers = new Headers();
-  headers.set('Content-Type', upstream.headers.get('Content-Type') || 'application/octet-stream');
-  const len = upstream.headers.get('Content-Length');
-  if (len) headers.set('Content-Length', len);
-
-  if (url.searchParams.get('dl') === '1') {
-    const name = (url.searchParams.get('name') || 'nyxia-media').replace(/[^a-z0-9\-_.]/gi, '_');
-    headers.set('Content-Disposition', `attachment; filename="${name}"`);
-  }
-
-  return new Response(upstream.body, { status: 200, headers });
+  }catch{return new Response('Média temporairement indisponible.',{status:502});}
+  if(!upstream)return new Response('Média temporairement indisponible.',{status:502});
+  if(!upstream.ok&&upstream.status!==416)return new Response('Média introuvable.',{status:502});
+  const out=new Headers({'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'});
+  for(const k of ['Content-Type','Content-Length','Content-Range','Accept-Ranges'])if(upstream.headers.has(k))out.set(k,upstream.headers.get(k));
+  if(!out.has('Content-Type'))out.set('Content-Type','application/octet-stream');
+  if(url.searchParams.get('dl')==='1'){const name=(url.searchParams.get('name')||'nyxia-media').replace(/[^a-z0-9\-_.]/gi,'_');out.set('Content-Disposition','attachment; filename="'+name+'"');}
+  return new Response(upstream.body,{status:upstream.status,headers:out});
 }
 
 // ───────────── VOIX — liste IMMUABLE (sauf demande explicite) ─────────────
