@@ -1400,6 +1400,7 @@ const url = new URL(request.url);
       if (path === '/api/webhooks/systeme' && request.method === 'POST') return await handleSystemeWebhook(request, env);
       if (path === '/api/first-connection' && request.method === 'POST') return await handlePromoFirstConnection(request, env);
       if (path === '/api/profile/paypal' && ['GET','POST'].includes(request.method)) return await nyxOwnPaypal(request,env);
+      if (path === '/api/team' && request.method === 'POST') return await handleTeam(request, env);
       if (path === '/api/signup' && request.method === 'POST') return await handleSignup(request, env);
       if (path === '/api/login' && request.method === 'POST') return await handleLogin(request, env);
       if (path === '/api/ref-resolve' && request.method === 'GET') return await handleResolveRef(request, env);
@@ -2288,6 +2289,31 @@ async function handleAdminChangePassword(request, env) {
   return json({ success: true });
 }
 
+
+async function teamAccount(session, env) {
+  return env.DB.prepare('SELECT id, parent_id FROM users WHERE id = ?').bind(session.userId || session.id || '').first();
+}
+async function teamRecipient(session, id, env) {
+  const self = await teamAccount(session, env);
+  if (!self) return null;
+  return env.DB.prepare('SELECT id, email, full_name FROM users WHERE id = ? AND id != ? AND (parent_id = ? OR id = ?)').bind(id, self.id, self.id, self.parent_id || '').first();
+}
+async function handleTeam(request, env) {
+  const b = await request.json();
+  const session = await getSessionOrNull(b.token || request.headers.get('X-Cercle-Token'), env);
+  if (!session) return json({error:'Session expirée. Reconnecte-toi.'},401);
+  const self = await teamAccount(session, env);
+  if (!self) return json({error:'Compte introuvable.'},401);
+  await ensureUserColumns(env);
+  await nyxEnsureCommissionSchema(env);
+  const rows = await env.DB.prepare(`SELECT u.id, u.full_name, u.created_at, u.last_login,
+    (SELECT COUNT(*) FROM users c WHERE c.parent_id = u.id) AS team_count,
+    (SELECT COUNT(DISTINCT sale_id) FROM commissions c WHERE c.beneficiary_id = u.id AND c.level = 1) AS sales_count
+    FROM users u WHERE u.parent_id = ? ORDER BY u.created_at DESC, u.id`).bind(self.id).all();
+  const leader = self.parent_id ? await env.DB.prepare('SELECT id, full_name FROM users WHERE id = ?').bind(self.parent_id).first() : null;
+  return json({success:true,members:rows.results || [],leader});
+}
+
 // ───────────── MESSAGERIE INTERNE ─────────────
 
 async function getSessionOrNull(token, env) {
@@ -2340,6 +2366,13 @@ async function handleListGardiennes(request, env) {
     }
   }
 
+  if (env.DB) {
+    const account = await teamAccount(session, env);
+    if (account) {
+      const team = await env.DB.prepare('SELECT id, full_name FROM users WHERE id != ? AND (parent_id = ? OR id = ?)').bind(account.id, account.id, account.parent_id || '').all();
+      for (const member of team.results || []) contacts.push({email:member.id,firstName:member.full_name || 'Membre du cercle'});
+    }
+  }
   return json({ success: true, gardiennes: contacts });
 }
 
@@ -2389,21 +2422,30 @@ async function handleListMessages(request, env) {
 
 // Une Gardienne envoie un message à une autre (ou au Super Admin via __admin__)
 async function handleSendMessage(request, env) {
-  const { token, toEmail, subject, body } = await request.json();
+  const input = await request.json();
+  const { token, subject, body, toUserId } = input;
+  let toEmail = input.toEmail || input.to;
+  if (toEmail === 'superadmin') toEmail = '__admin__';
   const session = await getSessionOrNull(token, env);
   if (!session) return json({ error: 'Session expirée.' }, 401);
+  let teamMember = null;
+  if (toUserId || (toEmail && !String(toEmail).includes('@') && !['__admin__','admin'].includes(toEmail))) {
+    teamMember = await teamRecipient(session, toUserId || toEmail, env);
+    if (!teamMember) return json({error:'Ce membre ne fait pas partie de ton cercle direct.'},403);
+    toEmail = teamMember.email;
+  }
   if (!toEmail || !body) return json({ error: 'Destinataire et message requis.' }, 400);
 
   const to = String(toEmail).toLowerCase().trim();
   const isAdmin = (to === '__admin__' || to === 'admin');
 
   if (!isAdmin) {
-    const allowed = await isAllowedMessageRecipient(env, session.email, to);
+    const allowed = teamMember || await isAllowedMessageRecipient(env, session.email, to);
     if (!allowed) {
       return json({ error: 'Destinataire non autorisé. Tu peux écrire au Super Admin ou à un contact officiel uniquement.' }, 403);
     }
     const recipientRaw = await env.CASHFLOW_KV.get(`client:${to}`);
-    if (!recipientRaw) return json({ error: 'Destinataire introuvable.' }, 404);
+    if (!recipientRaw && !teamMember) return json({ error: 'Destinataire introuvable.' }, 404);
   }
 
   const id = crypto.randomUUID();
@@ -2413,6 +2455,7 @@ async function handleSendMessage(request, env) {
     id,
     from: session.email,
     fromName: session.firstname || 'Un membre',
+    fromUserId: session.userId || session.id || null,
     to: inbox,
     subject: subject || 'Message du Cercle',
     body,

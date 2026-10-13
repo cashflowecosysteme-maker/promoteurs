@@ -59,8 +59,8 @@ function showStatus(text, ok) {
 
     <label for="msg-to">Destinataire</label>
     <select id="msg-to">
-      <option value="superadmin">SuperAdmin</option>
-      <option value="leader">Leader de mon cercle</option>
+      <option value="__admin__">SuperAdmin</option>
+
     </select>
 
     <label for="msg-subject">Sujet (optionnel)</label>
@@ -92,7 +92,8 @@ async function sendMessage() {
     // Branche sur l’API messages du Worker (Studio / Cercle)
     var out = await api('/api/messages/send', 'POST', {
       token: TOKEN,
-      to: to,
+      toEmail: to === "__admin__" ? to : undefined,
+      toUserId: to === "__admin__" ? undefined : to,
       subject: subject,
       body: body
     });
@@ -104,7 +105,7 @@ async function sendMessage() {
     }
   } catch (e) {
     // Si l’API n’est pas encore branchée : on confirme côté UI que le texte est prêt
-    showStatus('Envoi : ' + e.message + ' — le formulaire est prêt ; l’API messages sera finalisée au prochain branchement.', false);
+    showStatus('Envoi impossible : ' + e.message, false);
   }
   btn.disabled = false;
 }
@@ -120,17 +121,37 @@ async function loadInbox() {
       return;
     }
     box.className = '';
-    box.innerHTML = list.map(function(m){
-      return '<div class="inbox-item"><span class="from">'+(m.from||m.sender||'—')+'</span>'
-        +'<span class="date">'+(m.date||m.created_at||'')+'</span>'
-        +'<div class="body">'+(m.body||m.content||'')+'</div></div>';
-    }).join('');
+    box.textContent='';
+    list.forEach(function(m){
+      var item=document.createElement('div');item.className='inbox-item';
+      var name=document.createElement('div');name.className='from';name.textContent=m.fromName||'Un membre';
+      var date=document.createElement('div');date.className='date';date.textContent=m.createdAt ? new Date(m.createdAt).toLocaleString('fr-CA') : '';
+      var subject=document.createElement('div');subject.textContent=m.subject||'';
+      var content=document.createElement('div');content.className='body';content.textContent=m.body||'';
+      item.append(name,date,subject,content);
+      var target=m.fromUserId;
+      if(m.kind==='admin'||m.from==='__admin__')target='__admin__';
+      if(target && Array.from(document.getElementById('msg-to').options).some(function(o){return o.value===target;})){
+        var reply=document.createElement('button');reply.className='btn';reply.textContent='Répondre';reply.onclick=function(){document.getElementById('msg-to').value=target;document.getElementById('msg-subject').value='Re : '+(m.subject||'');document.getElementById('msg-body').focus();};item.appendChild(reply);
+      }
+      box.appendChild(item);
+    });
   } catch (e) {
     box.className = 'empty';
-    box.textContent = 'Aucun message pour le moment';
+    box.textContent = 'Chargement impossible : '+e.message;
   }
 }
-loadInbox();
+async function loadContacts(){
+  try{
+    var out=await api('/api/team','POST',{token:TOKEN});
+    var sel=document.getElementById('msg-to');
+    var contacts=(out.members||[]).slice();if(out.leader)contacts.unshift(out.leader);
+    contacts.forEach(function(m){var o=document.createElement('option');o.value=m.id;o.textContent=m.full_name||'Membre';sel.appendChild(o);});
+    var target=new URLSearchParams(location.search).get('to');if(contacts.some(function(m){return m.id===target;}))sel.value=target;
+    await loadInbox();
+  }catch(e){showStatus(e.message,false);}
+}
+loadContacts();
 </script>
 <script src="/starry-bg.js" defer></script></body>
 </html>

@@ -37,10 +37,33 @@ code{flex:1;min-width:180px;padding:12px 14px;border-radius:12px;background:rgba
 </div>
 <div class="card">
   <div style="font-weight:600;color:#fff;margin-bottom:6px">Comment ça s’utilise</div>
-  <p class="sub" style="margin:0">1. Tu copies ton lien<br>2. Tu le partages<br>3. La personne s’inscrit via le paiement<br>4. Elle apparaît dans <b style="color:#fff">ton</b> cercle</p>
+  <p class="sub" style="margin:0">1. Tu copies ton lien<br>2. Tu le partages<br>3. La personne s’inscrit gratuitement au Cercle d’entraide avec ton lien<br>4. Elle apparaît dans <b style="color:#fff">ton</b> cercle</p>
 </div>
+<div class="card">
+  <h1 style="font-size:18px">Mon équipe · Cercle 1</h1>
+  <p class="sub">Les personnes inscrites gratuitement avec ton lien. Tu peux les accompagner et échanger dans la messagerie interne. Chacun choisit de partager son courriel dans la conversation.</p>
+  <div id="team" aria-live="polite">Chargement de ton équipe…</div>
+</div>
+<style>.member{padding:16px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.member:last-child{border:0}.details{font-size:13px;color:var(--t3);margin-top:6px;line-height:1.7}.btn{text-decoration:none}</style>
 <script>
 var TOKEN=(function(){try{var q=new URLSearchParams(location.search);var t=q.get('t');if(t){sessionStorage.setItem('nyxia_token',t);return t;}}catch(e){}return sessionStorage.getItem('nyxia_token')||'';})();
+function teamDate(value){return value ? new Date(value).toLocaleDateString('fr-CA') : 'Pas encore de connexion';}
+async function loadTeam(){
+  var box=document.getElementById('team');
+  try{
+    var r=await fetch('/api/team',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN})});
+    var d=await r.json();if(!r.ok)throw new Error(d.error||'Chargement impossible.');
+    box.textContent='';
+    if(!d.members.length){box.textContent='Aucun membre dans ton cercle pour le moment. Partage ton lien pour inviter les premières personnes.';return;}
+    d.members.forEach(function(m){
+      var row=document.createElement('div');row.className='member';
+      var info=document.createElement('div');var name=document.createElement('strong');name.textContent=m.full_name||'Membre';info.appendChild(name);
+      var details=document.createElement('div');details.className='details';details.textContent='Inscription : '+teamDate(m.created_at)+' · Dernière connexion : '+teamDate(m.last_login)+' · Son cercle : '+m.team_count+' membre(s) · Ventes attribuées directement : '+m.sales_count;info.appendChild(details);
+      var a=document.createElement('a');a.className='btn';a.textContent='Envoyer un message';a.href='/messagerie.html?to='+encodeURIComponent(m.id);row.append(info,a);box.appendChild(row);
+    });
+  }catch(e){box.textContent=e.message;}
+}
+loadTeam();
 (async function(){
   var r=await fetch('/api/check-auth',{method:'POST',headers:{'Content-Type':'application/json','X-Cercle-Token':TOKEN},body:JSON.stringify({token:TOKEN})});
   var d=await r.json().catch(function(){return{}});
