@@ -27,6 +27,7 @@ code{display:block;padding:10px;border-radius:10px;background:rgba(6,10,24,.6);b
 .btn-main{background:linear-gradient(135deg,var(--p),var(--p2));border:none;font-weight:600}
 .empty{color:var(--t3);padding:24px;text-align:center}
 .badge{display:inline-block;padding:4px 10px;border-radius:50px;background:rgba(123,92,255,.2);color:#c4b5fd;font-size:12px;margin-bottom:12px}
+.commissions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0 18px}.commission-rate{background:linear-gradient(135deg,rgba(6,10,24,.65),rgba(123,92,255,.09));border:1px solid rgba(255,228,138,.3);border-radius:12px;padding:12px}.commission-rate span{display:block;color:#d6d9f0;font-size:12px;margin-bottom:4px}.commission-rate strong{color:#ffe48a;font-size:20px;font-weight:500}.commission-note{font-size:11px;color:var(--t3);margin:-8px 0 16px}@media(max-width:520px){.commissions{grid-template-columns:1fr}.commission-rate{display:flex;align-items:center;justify-content:space-between;gap:10px}.commission-rate span{margin:0}}
 </style>
 </head><body><style id="nyxia-original-background">body{background:#0A1628!important;isolation:isolate}#starry-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}</style><canvas id="starry-canvas" aria-hidden="true"></canvas>
 <h1>📦 Produits à partager</h1>
@@ -38,7 +39,17 @@ code{display:block;padding:10px;border-radius:10px;background:rgba(6,10,24,.6);b
   var token=(function(){try{var q=new URLSearchParams(location.search);var t=q.get('t');if(t){sessionStorage.setItem('nyxia_token',t);return t;}}catch(e){}return sessionStorage.getItem('nyxia_token')||'';})();
   var myCode='';
 
-  function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+  function commissionRates(p){
+    var names=['Recommandation','Chef d’équipe','Bonus d’équipe'];
+    var blocks=names.map(function(label,i){
+      var raw=p['commission_n'+(i+1)];
+      var n=raw===null||raw===undefined||raw==='' ? null : Number(raw);
+      var value=n!==null&&Number.isFinite(n)&&n>=0&&n<=100 ? n.toLocaleString('fr-CA',{maximumFractionDigits:2})+' %' : 'Non renseigné';
+      return '<div class="commission-rate"><span>'+label+'</span><strong>'+value+'</strong></div>';
+    }).join('');
+    return '<div class="commissions" aria-label="Commissions de cette offre">'+blocks+'</div><p class="commission-note">Taux de l’offre. Une commission personnalisée peut s’appliquer à ton compte.</p>';
+  }
   function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDigits:2,maximumFractionDigits:2})+' $';}
   function withRef(url, code){
     if(!url) return '';
@@ -65,7 +76,7 @@ code{display:block;padding:10px;border-radius:10px;background:rgba(6,10,24,.6);b
   myCode=(auth.code||auth.affiliate_code||'').toString().trim().toUpperCase();
   document.getElementById('codeBadge').textContent=myCode?('Ton code unique : '+myCode):'Code manquant — reconnecte-toi';
   if(!myCode){
-    document.getElementById('list').textContent='Impossible d’afficher les liens sans ton code parrain.';
+    document.getElementById('list').textContent='Impossible d’afficher les liens sans ton code personnel.';
     return;
   }
 
@@ -85,6 +96,7 @@ code{display:block;padding:10px;border-radius:10px;background:rgba(6,10,24,.6);b
     return '<div class="card">'
       +'<h3>'+esc(p.title)+'</h3>'
       +'<div class="price">'+money(p.price)+'</div>'
+      +commissionRates(p)
       +'<div style="font-size:12px;color:var(--t3)">Ton lien de promotion (empreinte '+esc(myCode)+')</div>'
       +'<code>'+esc(promo)+'</code>'
       +'<button type="button" class="btn btn-main" data-copy="'+esc(promo)+'">Copier mon lien</button> '
