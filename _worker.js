@@ -1393,7 +1393,7 @@ const url = new URL(request.url);
     // Lien de création d'équipe / parrainage → inscription
     if (path.startsWith('/r/')) {
       const code = path.slice(3).split('/')[0];
-      return Response.redirect(url.origin + '/inscription.html?ref=' + encodeURIComponent(code), 302);
+      return Response.redirect(url.origin + '/cercle-entraide.html?ref=' + encodeURIComponent(code), 302);
     }
 
     try {

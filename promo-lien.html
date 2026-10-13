@@ -70,7 +70,7 @@ loadTeam();
   var code=(d.code||d.affiliate_code||'').toString().trim().toUpperCase();
   if(!code){ document.getElementById('lien').textContent='Code manquant — reconnecte-toi.'; return; }
   document.getElementById('codeBadge').textContent=code;
-  var lien='https://nyxia.top/r/'+code;
+  var lien=location.origin+'/cercle-entraide.html?ref='+encodeURIComponent(code);
   document.getElementById('lien').textContent=lien;
   document.getElementById('copy').onclick=function(){
     navigator.clipboard.writeText(lien);
