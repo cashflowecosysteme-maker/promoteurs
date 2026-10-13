@@ -3273,7 +3273,6 @@ async function writeSaleCommissions(env, {sellerId,productId,amount,buyerEmail,b
 
 
 
-const NYX_STUDIO_SALE_KEY = '3e3a45acbdbcb67318447a743b80d3574fd5b162af6b37a1';
 function nyxStudioSaleFields(raw){
  const out={};if(Array.isArray(raw))for(const f of raw){if(f)out[f.slug||f.fieldName||f.name||'']=f.value;}else if(raw&&typeof raw==='object')Object.assign(out,raw);return out;
 }
@@ -3294,7 +3293,19 @@ function nyxStudioSaleInput(body,request){
  return {buyerName:String(c.full_name||c.name||[c.first_name||c.firstname,c.last_name||c.lastname].filter(Boolean).join(' ')||'').trim(),email:String(c.email||d.email||'').trim().toLowerCase(),ref:String(ref).trim().toUpperCase(),amount,externalId,currency};
 }
 async function nyxStudioSaleWebhook(request,env){
- if(new URL(request.url).searchParams.get('key')!==NYX_STUDIO_SALE_KEY)return json({error:'Clé invalide.'},401);
+ const expected = String(env.STUDIO_WEBHOOK_SECRET || '').trim();
+ if (!expected) return json({error:'STUDIO_WEBHOOK_SECRET non configuré.'},503);
+ const supplied = String(request.headers.get('X-Webhook-Secret') || new URL(request.url).searchParams.get('key') || '').trim();
+ if (!supplied) return json({error:'Clé invalide.'},401);
+ const encoder = new TextEncoder();
+ const [expectedHash, suppliedHash] = await Promise.all([
+   crypto.subtle.digest('SHA-256', encoder.encode(expected)),
+   crypto.subtle.digest('SHA-256', encoder.encode(supplied))
+ ]);
+ const left = new Uint8Array(expectedHash), right = new Uint8Array(suppliedHash);
+ let difference = 0;
+ for (let i = 0; i < left.length; i++) difference |= left[i] ^ right[i];
+ if (difference !== 0) return json({error:'Clé invalide.'},401);
  if(!env.DB)return json({error:'Base absente.'},500);
  let input;try{input=nyxStudioSaleInput(await request.json(),request);}catch(e){return json({error:e.message},422);}
  if(input.ignored)return json({success:true,ignored:true});
