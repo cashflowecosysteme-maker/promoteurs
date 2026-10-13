@@ -83,6 +83,7 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
     try{var u=new URL(p.affiliate_link);if(!['https:','http:'].includes(u.protocol))return '';return withRef(u.href,code);}catch(e){return '';}
   }
   function saleLink(p,code){
+    if(p.closer_booking_url)return withRef(p.closer_booking_url,code);
     try{
       var u=new URL(p.portal_index_url||p.affiliate_link||'');
       if(!['https:','http:'].includes(u.protocol))return '';
@@ -99,7 +100,7 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
     document.getElementById('detail-rates').innerHTML=commissionRates(p);
     var img=document.getElementById('detail-image');var image='';try{var u=new URL(p.image_url);if(['https:','http:'].includes(u.protocol))image=u.href;}catch(e){}
     img.hidden=!image;if(image){img.src=image;img.alt=p.title||'';}
-    var offer=document.getElementById('detail-offer'),url=saleLink(p,myCode);offer.hidden=!url;if(url)offer.href=url;offer.textContent='Voir l’offre';
+    var offer=document.getElementById('detail-offer'),url=saleLink(p,myCode);offer.hidden=!url;if(url)offer.href=url;offer.textContent=p.closer_booking_url?'Prendre rendez-vous':'Voir l’offre';
     var join=document.getElementById('detail-join'),joinUrl=joinLink(myCode);join.hidden=!joinUrl;if(joinUrl)join.href=joinUrl;
     dialog.showModal();
   }
@@ -140,7 +141,8 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
       +'<h3>'+esc(p.title)+'</h3>'
       +'<div class="price">'+money(p.price)+'</div>'
       +commissionRates(p)
-      +(sale?(' <a class="btn gold-action" href="'+esc(sale)+'" target="_blank" rel="noopener">Voir l’offre</a>'):'')
+      +(sale?(' <a class="btn gold-action" href="'+esc(sale)+'" target="_blank" rel="noopener">'+(p.closer_booking_url?'Prendre rendez-vous':'Voir l’offre')+'</a>'):'')
+      +(p.closer_booking_url?'<button type="button" class="btn" data-copy="'+esc(sale)+'">Copier mon lien de rendez-vous</button>':'')
       +' <button type="button" class="btn" data-detail="'+i+'">En Savoir Plus</button>'
       +(offer?(' <a class="btn" href="'+esc(offer)+'" target="_blank" rel="noopener">Rejoindre le Cercle</a>'):'')
       +'</div>';

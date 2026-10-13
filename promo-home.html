@@ -96,7 +96,7 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
       return '<div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(123,92,255,.06)">'
         +'<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><strong style="color:#fff">'+esc(s.product_title)+'</strong><strong style="color:var(--gold)">'+esc(money(s.amount))+' '+esc(s.currency||'CAD')+'</strong></div>'
         +'<p style="margin-top:6px;font-size:13px">Client : '+esc(s.buyer_name||s.buyer_email||'Nom non transmis avec la vente')+'</p>'
-        +'<p style="margin-top:6px;font-size:12px;color:var(--t3)">'+esc(isNaN(date.getTime())?'Date non précisée':date.toLocaleString('fr-CA'))+' · '+esc(label)+' · '+esc(({1:'Recommandation Personnelle',2:'Chef d’équipe',3:'Bonus d’équipe'})[Number(s.level||1)]||'Origine non précisée')+'</p>'
+        +'<p style="margin-top:6px;font-size:12px;color:var(--t3)">'+esc(isNaN(date.getTime())?'Date non précisée':date.toLocaleString('fr-CA'))+' · '+esc(label)+' · '+esc(Number(s.level)===0?'Conclusion de vente — Closer':({1:'Recommandation Personnelle',2:'Chef d’équipe',3:'Bonus d’équipe'})[Number(s.level)]||'Origine non précisée')+'</p>'
         +(s.sale_amount!=null?'<p style="margin-top:4px;font-size:12px">Montant de la vente : '+esc(money(s.sale_amount))+' '+esc(s.currency||'CAD')+'</p>':'')
         +'</div>';
     }).join(''):'Aucune vente avec une commission attribuée à ton compte pour le moment.';

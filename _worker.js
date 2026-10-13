@@ -1413,7 +1413,10 @@ const url = new URL(request.url);
       const feed=await nyxiaPublicJson('https://repertoire.nyxia.top/api/repertoire');
       if(!feed.ok)return json(feed.data,feed.status);
       if(!Array.isArray(feed.data.products))return json({error:'Catalogue NyXia invalide.'},502);
-      return json({products:feed.data.products});
+      let closerOffers=[];
+      if(env.DB){try{const table=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='closer_offers'").first();if(table){const result=await env.DB.prepare("SELECT id,product_id FROM closer_offers WHERE active=1 AND booking_url<>'' ORDER BY created_at ASC").all();closerOffers=result.results||[];}}catch(e){return json({error:'Les rendez-vous Closer ne peuvent pas être chargés.'},502);}}
+      const products=feed.data.products.map(p=>{const offer=closerOffers.find(o=>o.product_id===p.id);return offer?{...p,closer_booking_url:'https://univers.nyxia.top/closer-rendez-vous.html?offer='+encodeURIComponent(offer.id),commission_n1:8,commission_n2:5,commission_n3:2}:p;});
+      return json({products});
     }
     if(path==='/api/nyxia-universe/boutique'&&request.method==='GET')return await nyxiaBoutiqueFeed();
     if(path==='/api/parcours/formations'&&request.method==='GET')return await promoParcoursFormations(request,env);
@@ -3311,7 +3314,19 @@ async function nyxStudioSaleProcess(request,env){
  if(!env.DB)return json({error:'Base absente.'},500);
  const event = String(request.headers.get('X-Webhook-Event') || body.type || '');
  const eventData = body.data || body;
+ const saleCustomer=eventData.customer||{};const saleFields=nyxStudioSaleFields(saleCustomer.fields);let closerToken=String(saleFields.nxdeal||eventData.nxdeal||'');
+ if(!closerToken){try{closerToken=new URL(saleCustomer.sourceUrl||saleCustomer.sourceURL||saleCustomer.source_url||'').searchParams.get('nxdeal')||'';}catch(_){}}
+ if(closerToken)return json({success:true,ignored:true,reason:'Paiement attribué à un dossier de l’Outil Closer.'});
  const eventStep = String((eventData.funnelStep || eventData.funnel_step || {}).id || '');
+ if(env.DB && saleCustomer.email){
+  const table=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='closer_links'").first();
+  if(table){
+   const mail=String(saleCustomer.email).trim().toLowerCase();
+   const links=await env.DB.prepare("SELECT l.snapshot FROM closer_links l JOIN closer_deals d ON d.id=l.deal_id WHERE d.buyer_email=? AND l.revoked=0 AND l.expires_at>=?").bind(mail,new Date().toISOString()).all();
+   if((links.results||[]).some(l=>{try{return JSON.parse(l.snapshot).step_id===eventStep}catch(_){return false}}))return json({success:true,ignored:true,reason:'Paiement associé à un dossier de l’Outil Closer.'});
+  }
+ }
+
  if (eventStep && eventStep !== '25460120') return json({success:true,ignored:true,reason:'Autre page de paiement.'});
  if (event === 'SALE_NEW' && !eventStep) return json({error:'Identifiant de la page de paiement absent de la notification.'},422);
  let input;try{input=nyxStudioSaleInput(body,request);}catch(e){return json({error:e.message},422);}
