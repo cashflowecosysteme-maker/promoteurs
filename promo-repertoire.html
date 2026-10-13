@@ -42,6 +42,7 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
 <h1>📦 Produits à partager</h1>
 <p class="sub">Chaque lien porte <strong style="color:#fff">ton code unique</strong> — c’est ainsi qu’on sait qui a fait la promotion et qui doit être relié aux revenus.</p>
 <div class="badge" id="codeBadge">Code : …</div>
+<section id="general-promotion" class="card" hidden><h2 style="color:#fff;font-size:1.1rem;margin-bottom:8px">Ton lien de promotion du répertoire</h2><p>Ce lien ouvre le répertoire de tous les produits et portails NyXia. Il contient ton empreinte personnelle pour identifier tes recommandations.</p><code id="general-promotion-url"></code><button type="button" class="btn btn-main" id="general-promotion-copy">Copier mon lien</button></section>
 <div id="list" class="empty">Chargement…</div>
 <dialog id="product-detail" aria-labelledby="detail-title"><button type="button" class="detail-close" id="detail-close" aria-label="Fermer">×</button><p style="color:#ffe48a">💜 PRODUIT DU CERCLE</p><h2 id="detail-title"></h2><img id="detail-image" alt=""><div class="detail-text" id="detail-text"></div><div id="detail-rates"></div><p class="detail-invite">💜 Rejoins immédiatement le Cercle d’entraide ! L’inscription est gratuite.</p><div class="detail-actions"><a class="btn gold-action" id="detail-offer" target="_blank" rel="noopener">Voir l’offre</a><a class="btn" id="detail-join" target="_blank" rel="noopener">Rejoindre le Cercle</a><a class="btn" href="/login.html" target="_blank" rel="noopener">Déjà membre ?</a></div></dialog>
 <script>
@@ -113,6 +114,15 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
     return;
   }
 
+  var generalUrl='https://repertoire.nyxia.top/repertoire?ref='+encodeURIComponent(myCode)+'#offres';
+  document.getElementById('general-promotion-url').textContent=generalUrl;
+  document.getElementById('general-promotion').hidden=false;
+  var generalCopy=document.getElementById('general-promotion-copy');
+  generalCopy.onclick=async function(){
+    try{await navigator.clipboard.writeText(generalUrl);generalCopy.textContent='Copié ✓';setTimeout(function(){generalCopy.textContent='Copier mon lien';},1500);}
+    catch(e){generalCopy.textContent='Sélectionne le lien affiché pour le copier';}
+  };
+
   var data={};
   try{
     var response=await fetch('/api/share-products',{headers:{'X-Cercle-Token':token},cache:'no-store'});
@@ -124,16 +134,12 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
   if(!products.length){ box.textContent='Aucun produit publié pour le moment.'; return; }
   box.className='';
   box.innerHTML=products.map(function(p,i){
-    var promo=shareLink(p, myCode);
     var offer=joinLink(myCode);
     var sale=saleLink(p,myCode);
     return '<div class="card">'
       +'<h3>'+esc(p.title)+'</h3>'
       +'<div class="price">'+money(p.price)+'</div>'
       +commissionRates(p)
-      +'<div style="font-size:12px;color:var(--t3)">Ton lien de promotion (empreinte '+esc(myCode)+')</div>'
-      +'<code>'+esc(promo)+'</code>'
-      +'<button type="button" class="btn btn-main" data-copy="'+esc(promo)+'">Copier mon lien</button> '
       +(sale?(' <a class="btn gold-action" href="'+esc(sale)+'" target="_blank" rel="noopener">Voir l’offre</a>'):'')
       +' <button type="button" class="btn" data-detail="'+i+'">En Savoir Plus</button>'
       +(offer?(' <a class="btn" href="'+esc(offer)+'" target="_blank" rel="noopener">Rejoindre le Cercle</a>'):'')
