@@ -2688,8 +2688,8 @@ async function nyxMediaSearch(request,env,kind){
   }
   if(!jobs.length)return json({error:'La banque de ce type de média n’est pas encore configurée. Contacte l’équipe NyXia.'},503);
   await Promise.all(jobs);
-  if(!completed)return json({error:'Recherche indisponible : '+issues.map(x=>x.provider+' ('+x.reason+')').join('; '),issues},502);
-  return json({success:true,results:results.slice(0,kind==='image'?60:36),warning:issues.length?'Source(s) indisponible(s) : '+issues.map(x=>x.provider+' ('+x.reason+')').join('; '):'',issues});
+  if(!completed)return json({error:'La recherche est momentanément indisponible. Réessaie dans quelques instants.'},502);
+  return json({success:true,results:results.slice(0,kind==='image'?60:36)});
 }
 async function handleMediaImages(request,env){return nyxMediaSearch(request,env,'image');}
 async function handleMediaVideos(request,env){return nyxMediaSearch(request,env,'video');}

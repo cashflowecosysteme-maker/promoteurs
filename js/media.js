@@ -34,9 +34,9 @@ async function search(){
   const q=query.value.trim();if(!q||!authenticated)return;clear();const current=generation,kind=tab;controller=new AbortController();submit.disabled=true;statusEl.textContent='Recherche en cours…';
   try{
     const r=await fetch('/api/media/'+({image:'images',video:'videos',sound:'sounds'})[kind],{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,query:q,format:kind==='sound'?'':format.value}),signal:controller.signal});
-    if(r.status===401){expired();return;}const data=await r.json();if(!r.ok||data.error)throw Error(data.error||'La recherche est indisponible. Réessaie.');if(current!==generation)return;
+    if(r.status===401){expired();return;}const data=await r.json();if(!r.ok||data.error)throw Error('La recherche est momentanément indisponible. Réessaie.');if(current!==generation)return;
     const items=(data.results||[]).filter(m=>m.type===kind);render(items,kind);
-    statusEl.textContent=(result.children.length?result.children.length+' résultat(s)':"Aucun résultat pour cette recherche et ce format. Essaie un autre mot ou un autre format.")+(data.warning?' '+data.warning:'');
+    statusEl.textContent=(result.children.length?result.children.length+' résultat(s)':"Aucun résultat pour cette recherche et ce format. Essaie un autre mot ou un autre format.");
   }catch(e){if(e.name!=='AbortError'&&current===generation)statusEl.textContent=e.message||'La recherche est indisponible. Réessaie.';}
   finally{if(current===generation)submit.disabled=!authenticated;}
 }
