@@ -117,15 +117,20 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
       +'<code>'+esc(promo)+'</code>'
       +'<button type="button" class="btn btn-main" data-copy="'+esc(promo)+'">Copier mon lien</button> '
       +'<button type="button" class="btn" data-detail="'+i+'">En Savoir Plus</button>'
-      +(offer?(' <a class="btn gold-action" href="'+esc(offer)+'" target="_blank" rel="noopener">'+actionLabel(p)+'</a>'):'')
+      +(offer?('<div class="commercial-link" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">'
+        +'<div style="font-size:13px;color:#fff;margin-bottom:6px">Lien direct de l’offre · Vente ou rendez-vous</div>'
+        +'<code>'+esc(offer)+'</code>'
+        +'<button type="button" class="btn btn-main" data-copy="'+esc(offer)+'">Copier le lien de vente ou de rendez-vous</button> '
+        +'<a class="btn" href="'+esc(offer)+'" target="_blank" rel="noopener">Ouvrir la page de vente ou de rendez-vous</a>'
+        +'</div>'):'<p style="margin-top:14px;color:#ffe48a">Le lien direct de cette offre doit être renseigné dans son éditeur.</p>')
       +'</div>';
   }).join('');
   box.querySelectorAll('[data-detail]').forEach(function(btn){btn.onclick=function(){openDetails(products[Number(btn.dataset.detail)]);};});
   box.querySelectorAll('[data-copy]').forEach(function(btn){
-    btn.onclick=function(){
-      navigator.clipboard.writeText(btn.getAttribute('data-copy'));
-      btn.textContent='Copié ✓';
-      setTimeout(function(){ btn.textContent='Copier mon lien'; },1500);
+    var originalLabel=btn.textContent;
+    btn.onclick=async function(){
+      try{await navigator.clipboard.writeText(btn.getAttribute('data-copy'));btn.textContent='Copié ✓';setTimeout(function(){btn.textContent=originalLabel;},1500);}
+      catch(e){btn.textContent='Sélectionne le lien affiché pour le copier';}
     };
   });
 })();
