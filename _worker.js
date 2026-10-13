@@ -2686,9 +2686,9 @@ async function nyxMediaSearch(request,env,kind){
       for(const p of d.results||[]){const prev=p.previews||{},audio=prev['preview-hq-mp3']||prev['preview-lq-mp3']||prev['preview-hq-ogg'];if(audio)add({id:'freesound_'+p.id,type:'sound',name:p.name||'Son',duration:Math.round(Number(p.duration||0)),audioUrl:mediaProxyUrl(audio,token),downloadUrl:mediaProxyUrl(audio,token,{download:true,name:'nyxia-son-'+p.id+(audio.includes('.ogg')?'.ogg':'.mp3')})});}
     });
   }
-  if(!jobs.length)return json({error:'La banque de ce type de média n’est pas encore configurée. Contacte l’équipe NyXia.'},503);
+  if(!jobs.length)return json({success:true,results:[]});
   await Promise.all(jobs);
-  if(!completed)return json({error:'La recherche est momentanément indisponible. Réessaie dans quelques instants.'},502);
+  if(!completed)return json({success:true,results:[]});
   return json({success:true,results:results.slice(0,kind==='image'?60:36)});
 }
 async function handleMediaImages(request,env){return nyxMediaSearch(request,env,'image');}

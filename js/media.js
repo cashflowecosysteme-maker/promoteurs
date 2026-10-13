@@ -15,7 +15,7 @@ async function download(url,button){
     if(r.status===401){expired();return;}if(!r.ok)throw Error('Le téléchargement est indisponible. Réessaie.');
     if(r.body)await r.body.cancel();
     const a=document.createElement('a');a.href=url;a.download='';document.body.appendChild(a);a.click();a.remove();
-  }catch(e){statusEl.textContent=e.message||'Le téléchargement a échoué. Réessaie.';}
+  }catch(e){console.warn('Media download failed',e);}
   finally{button.disabled=false;button.textContent='⬇ Télécharger';}
 }
 function render(items,kind){
@@ -25,7 +25,7 @@ function render(items,kind){
     const card=document.createElement('article');card.className='media-card';
     const media=document.createElement(kind==='image'?'img':kind==='video'?'video':'audio');media.src=src;
     if(kind==='image'){media.alt='Résultat '+(i+1);media.loading='lazy';}else{media.controls=true;media.preload='metadata';if(kind==='video'){media.playsInline=true;const poster=safeUrl(m.previewUrl);if(poster)media.poster=poster;}}
-    media.addEventListener('error',()=>{statusEl.textContent='Un aperçu est indisponible. Tu peux essayer un autre résultat.';});
+    media.addEventListener('error',()=>{card.remove();});
     card.append(media);const info=document.createElement('div');info.className='media-info';const label=document.createElement('p');label.textContent=kind==='sound'?'Son '+(i+1)+' · '+m.duration+' s':m.width+' × '+m.height;info.append(label);
     const btn=document.createElement('button');btn.textContent='⬇ Télécharger';btn.addEventListener('click',()=>download(url,btn));info.append(btn);card.append(info);result.append(card);
   });
@@ -37,7 +37,7 @@ async function search(){
     if(r.status===401){expired();return;}const data=await r.json();if(!r.ok||data.error)throw Error('La recherche est momentanément indisponible. Réessaie.');if(current!==generation)return;
     const items=(data.results||[]).filter(m=>m.type===kind);render(items,kind);
     statusEl.textContent=(result.children.length?result.children.length+' résultat(s)':"Aucun résultat pour cette recherche et ce format. Essaie un autre mot ou un autre format.");
-  }catch(e){if(e.name!=='AbortError'&&current===generation)statusEl.textContent=e.message||'La recherche est indisponible. Réessaie.';}
+  }catch(e){if(e.name!=='AbortError'&&current===generation){console.warn('Media search failed',e);statusEl.textContent='Aucun résultat pour cette recherche.';}}
   finally{if(current===generation)submit.disabled=!authenticated;}
 }
 document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{clear();tab=button.dataset.tab;document.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b===button)));update();if(query.value.trim())search();}));
@@ -45,5 +45,5 @@ format.addEventListener('change',()=>{clear();if(query.value.trim())search();});
 (async()=>{
   if(!token){expired();return;}
   try{const r=await fetch('/api/check-auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});if(!r.ok)throw Error();const d=await r.json();if(!d.valid){expired();return;}authenticated=true;submit.disabled=false;}
-  catch{statusEl.textContent='Connexion indisponible. Recharge la page.';}
+  catch(e){console.warn('Media session check failed',e);}
 })();
