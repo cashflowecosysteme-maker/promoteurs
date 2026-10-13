@@ -607,7 +607,7 @@ async function handlePublicRepertoire(request, env) {
     let results = [];
     try {
       const r = await env.DB.prepare(
-        `SELECT id, title, description_short, price, price_monthly, billing_type, image_url, status, promo_code, affiliate_link, promo_guide, join_url, join_type, created_at
+        `SELECT id, title, description_short, price, price_monthly, billing_type, image_url, status, promo_code, affiliate_link, promo_guide, join_url, join_type, commission_n1, commission_n2, commission_n3, created_at
          FROM marketplace_products
          WHERE status = 'active' OR status = 'published'
          ORDER BY created_at DESC LIMIT 200`
@@ -615,7 +615,7 @@ async function handlePublicRepertoire(request, env) {
       results = r.results || [];
     } catch (e1) {
       const r = await env.DB.prepare(
-        `SELECT id, title, description_short, price, image_url, status, promo_code, affiliate_link, created_at
+        `SELECT id, title, description_short, price, image_url, status, promo_code, affiliate_link, commission_n1, commission_n2, commission_n3, created_at
          FROM marketplace_products
          WHERE status = 'active' OR status = 'published'
          ORDER BY created_at DESC LIMIT 200`
@@ -1372,6 +1372,14 @@ export default {
     try { if (env.DB) await ensureSchema(env); } catch (e) { console.error("schema", e); }
 const url = new URL(request.url);
     const path = url.pathname;
+    if(path==='/api/share-products' && request.method==='GET') {
+      const session=await getSessionOrNull(request.headers.get('X-Cercle-Token')||'',env);
+      if(!session)return json({error:'Session expirée. Reconnecte-toi.'},401);
+      const feed=await nyxiaPublicJson('https://repertoire.nyxia.top/api/repertoire');
+      if(!feed.ok)return json(feed.data,feed.status);
+      if(!Array.isArray(feed.data.products))return json({error:'Catalogue NyXia invalide.'},502);
+      return json({products:feed.data.products});
+    }
     if(path==='/api/nyxia-universe/boutique'&&request.method==='GET')return await nyxiaBoutiqueFeed();
     if(path==='/api/parcours/formations'&&request.method==='GET')return await promoParcoursFormations(request,env);
     if(path==='/api/formation/open'&&request.method==='POST')return await formationOpen(request,env);
