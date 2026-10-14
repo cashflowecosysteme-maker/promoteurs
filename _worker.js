@@ -1415,7 +1415,7 @@ const url = new URL(request.url);
       if(!Array.isArray(feed.data.products))return json({error:'Catalogue NyXia invalide.'},502);
       let closerOffers=[];
       if(env.DB){try{const table=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='closer_offers'").first();if(table){const result=await env.DB.prepare("SELECT id,product_id FROM closer_offers WHERE active=1 AND booking_url<>'' ORDER BY created_at ASC").all();closerOffers=result.results||[];}}catch(e){return json({error:'Les rendez-vous Closer ne peuvent pas être chargés.'},502);}}
-      const products=feed.data.products.map(p=>{const offer=closerOffers.find(o=>o.product_id===p.id);return offer?{...p,closer_booking_url:'https://univers.nyxia.top/closer-rendez-vous.html?offer='+encodeURIComponent(offer.id),commission_n1:8,commission_n2:5,commission_n3:2}:p;});
+      const products=feed.data.products.map(p=>{const offer=closerOffers.find(o=>o.product_id===p.id);return offer?{...p,commission_n1:8,commission_n2:5,commission_n3:2}:p;});
       return json({products});
     }
     if(path==='/api/nyxia-universe/boutique'&&request.method==='GET')return await nyxiaBoutiqueFeed();
@@ -3323,7 +3323,7 @@ async function nyxStudioSaleProcess(request,env){
   if(table){
    const mail=String(saleCustomer.email).trim().toLowerCase();
    const links=await env.DB.prepare("SELECT l.snapshot FROM closer_links l JOIN closer_deals d ON d.id=l.deal_id WHERE d.buyer_email=? AND l.revoked=0 AND l.expires_at>=?").bind(mail,new Date().toISOString()).all();
-   if((links.results||[]).some(l=>{try{return JSON.parse(l.snapshot).step_id===eventStep}catch(_){return false}}))return json({success:true,ignored:true,reason:'Paiement associé à un dossier de l’Outil Closer.'});
+   if((links.results||[]).some(l=>{try{const snap=JSON.parse(l.snapshot);if(snap.step_id)return snap.step_id===eventStep;try{const a=new URL(snap.payment_url),b=new URL(saleCustomer.sourceUrl||saleCustomer.sourceURL||saleCustomer.source_url||'');return a.origin===b.origin&&a.pathname===b.pathname}catch(_){return false}}catch(_){return false}}))return json({success:true,ignored:true,reason:'Paiement associé à un dossier de l’Outil Closer.'});
   }
  }
 
