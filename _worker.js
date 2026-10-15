@@ -1421,8 +1421,8 @@ const url = new URL(request.url);
       const ratesByProduct=new Map(settings.products.map(p=>[p.product_id,p]));
       const products=feed.data.products.map(p=>{
         const own=ratesByProduct.get(p.id);if(!own)return p;
-        const shown=own.via_closer?own.closer_referral_rates:own.rates;
-        return {...p,commission_n1:shown[0],commission_n2:shown[1],commission_n3:shown[2],personal_commission_rates:own.rates,has_personal_commission:own.personal,via_closer:own.via_closer,closer_conclusion_rate:settings.closer_active&&own.via_closer?settings.closer_conclusion_rate:null};
+        const referralDisplay=own.via_closer&&!settings.closer_active;const shown=referralDisplay?own.closer_referral_rates:own.rates;
+        return {...p,commission_n1:shown[0],commission_n2:shown[1],commission_n3:shown[2],personal_commission_rates:own.rates,has_personal_commission:own.personal,commission_display_context:referralDisplay?'referral':'personal',commercial_director:settings.closer_active,via_closer:own.via_closer,closer_conclusion_rate:settings.closer_active&&own.via_closer?settings.closer_conclusion_rate:null};
       });
       return json({products});
     }
