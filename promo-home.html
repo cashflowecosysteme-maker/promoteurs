@@ -65,7 +65,7 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
   <div id="salesList" style="display:flex;flex-direction:column;gap:10px">Chargement…</div>
 </div>
 <div class="card">
-  <h2 style="margin:0 0 12px;font-size:15px;color:#fff">Mes recrutements et ceux de mon équipe</h2>
+  <h2 style="margin:0 0 12px;font-size:15px;color:#fff">Mes partenaires NyXia et ceux de mon équipe</h2>
   <div id="recruitsList" style="display:flex;flex-direction:column;gap:10px">Chargement…</div>
 </div>
 
@@ -91,11 +91,12 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
       }).join('');
     }
     var settings=st.commission_settings||{},configured=settings.products||[];
+    var commissionNames=['Partenaire NyXia — Prime de recommandation','Chef d’équipe',"Bonus d'équipe"];
     var rate=function(n){return Number(n).toLocaleString('fr-CA',{maximumFractionDigits:2})+' %'};
     document.getElementById('myCommissionCard').hidden=false;
-    document.getElementById('myCommissionRates').innerHTML=(settings.closer_active?'<p style="font-size:16px;color:#ffe48a;margin-bottom:14px">Pour une vente que tu conclus via l’Outil Closer : '+esc(rate(settings.closer_conclusion_rate))+'</p>':'')+(configured.length?configured.map(function(p){
-      var circles=p.rates.map(function(n,i){return 'Cercle '+(i+1)+' : '+rate(n)}).join(' · ');
-      return '<div style="padding:12px 0;border-top:1px solid var(--border)"><p style="color:#fff;font-size:15px">'+esc(p.title)+'</p><p style="margin-top:6px;color:#d6d9f0;font-size:12px">'+(p.personal?'Tes taux personnels configurés':'Tes taux selon le produit')+'</p><p style="color:#ffe48a;font-size:15px;margin-top:4px">'+esc(circles)+'</p>'+(p.via_closer?'<p style="margin-top:8px;font-size:12px;color:#c4b5fd">Pour les recommandations via l’Outil Closer : '+esc(p.closer_referral_rates.map(function(n,i){return 'Cercle '+(i+1)+' : '+rate(n)}).join(' · '))+'</p>':'')+'</div>';
+    document.getElementById('myCommissionRates').innerHTML=(settings.closer_active?'<p style="font-size:16px;color:#ffe48a;margin-bottom:14px">Ta rémunération comme Directeur ou Directrice du développement commercial NyXia pour une vente conclue : '+esc(rate(settings.closer_conclusion_rate))+'</p>':'')+(configured.length?configured.map(function(p){
+      var circles=p.rates.map(function(n,i){return commissionNames[i]+' : '+rate(n)}).join(' · ');
+      return '<div style="padding:12px 0;border-top:1px solid var(--border)"><p style="color:#fff;font-size:15px">'+esc(p.title)+'</p><p style="margin-top:6px;color:#d6d9f0;font-size:12px">'+(p.personal?'Tes taux personnels configurés':'Tes taux selon le produit')+'</p><p style="color:#ffe48a;font-size:15px;margin-top:4px">'+esc(circles)+'</p>'+(p.via_closer?'<p style="margin-top:8px;font-size:12px;color:#c4b5fd">Primes de recommandation pour une vente accompagnée par la direction du développement commercial NyXia : '+esc(p.closer_referral_rates.map(function(n,i){return commissionNames[i]+' : '+rate(n)}).join(' · '))+'</p>':'')+'</div>';
     }).join(''):'Aucun taux de produit configuré pour le moment.');
     var sales=st.sales||[];
     document.getElementById('salesList').innerHTML=sales.length?sales.map(function(s){
@@ -104,7 +105,7 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
       return '<div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(123,92,255,.06)">'
         +'<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><strong style="color:#fff">'+esc(s.product_title)+'</strong><strong style="color:var(--gold)">'+esc(money(s.amount))+' '+esc(s.currency||'CAD')+'</strong></div>'
         +'<p style="margin-top:6px;font-size:13px">Client : '+esc(s.buyer_name||s.buyer_email||'Nom non transmis avec la vente')+'</p>'
-        +'<p style="margin-top:6px;font-size:12px;color:var(--t3)">'+esc(isNaN(date.getTime())?'Date non précisée':date.toLocaleString('fr-CA'))+' · '+esc(label)+' · '+esc(Number(s.level)===0?'Conclusion de vente — Closer':({1:'Recommandation Personnelle',2:'Chef d’équipe',3:'Bonus d’équipe'})[Number(s.level)]||'Origine non précisée')+'</p>'
+        +'<p style="margin-top:6px;font-size:12px;color:var(--t3)">'+esc(isNaN(date.getTime())?'Date non précisée':date.toLocaleString('fr-CA'))+' · '+esc(label)+' · '+esc(Number(s.level)===0?'Conclusion de vente — Directeur ou Directrice du développement commercial NyXia':({1:'Partenaire NyXia — Prime de recommandation',2:'Chef d’équipe',3:"Bonus d'équipe"})[Number(s.level)]||'Origine non précisée')+'</p>'
         +(s.rate_percent!=null?'<p style="margin-top:6px;font-size:14px;color:#ffe48a">Taux appliqué à cette commission : '+esc(rate(s.rate_percent))+'</p>':'')
         +(s.sale_amount!=null?'<p style="margin-top:4px;font-size:12px">Base de calcul de cette commission : '+esc(money(s.sale_amount))+' '+esc(s.currency||'CAD')+'</p>':'')
         +'</div>';
@@ -113,16 +114,16 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
     document.getElementById('recruitsList').innerHTML=recruits.length?recruits.map(function(r){
       var date=new Date(r.created_at);
       return '<div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(123,92,255,.06)"><strong style="color:#fff">'+esc(r.full_name||'Membre')+'</strong>'
-        +'<p style="margin-top:6px;font-size:12px;color:var(--t3)">'+esc(Number(r.level)===1?'Recrutement personnel':'Recrutement de ton équipe')+' · '+esc(isNaN(date.getTime())?'Date non précisée':date.toLocaleString('fr-CA'))+'</p>'
+        +'<p style="margin-top:6px;font-size:12px;color:var(--t3)">'+esc(Number(r.level)===1?'Partenaire NyXia recommandé par toi':'Partenaire NyXia recommandé par ton équipe')+' · '+esc(isNaN(date.getTime())?'Date non précisée':date.toLocaleString('fr-CA'))+'</p>'
         +(Number(r.level)>1&&r.sponsor_name?'<p style="margin-top:4px;font-size:12px">Recommandé par '+esc(r.sponsor_name)+'</p>':'')+'</div>';
-    }).join(''):'Aucun recrutement personnel ou de ton équipe pour le moment.';
+    }).join(''):'Aucun partenaire NyXia recommandé par toi ou ton équipe pour le moment.';
     document.getElementById('cercle').textContent=String(st.team_total||st.team_n1||0);
     document.getElementById('clics').textContent = st.success && (!code || String(st.code || '').toUpperCase() === String(code).toUpperCase()) ? String(st.clicks || 0) : '—';
   } catch(e) {
     var error=document.getElementById('statsError');error.hidden=false;error.textContent=e.message||'Impossible de charger tes ventes.';
     ['gains','pending','cercle','clics'].forEach(function(id){document.getElementById(id).textContent='—'});
     document.getElementById('salesList').textContent='Les ventes ne peuvent pas être affichées actuellement.';
-    document.getElementById('recruitsList').textContent='Les recrutements ne peuvent pas être affichés actuellement.';
+    document.getElementById('recruitsList').textContent='Les partenaires de ton équipe ne peuvent pas être affichés actuellement.';
   }
 })();
 </script>
