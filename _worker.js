@@ -460,7 +460,7 @@ async function handleStats(request, env) {
     }
       const history = await env.DB.prepare(
         `SELECT c.id, c.sale_id, c.product_id, COALESCE(p.title, 'Produit non identifié') AS product_title,
-                c.amount, c.currency, c.status, c.level, c.sale_amount, c.rate_percent, c.rate_source, c.source, c.created_at, c.buyer_email,
+                c.amount, c.currency, c.status, c.level, c.sale_amount, c.created_at, c.buyer_email,
                 COALESCE(NULLIF(c.buyer_name,''),
                   (SELECT NULLIF(u.full_name,'') FROM users u WHERE lower(u.email) = lower(c.buyer_email) ORDER BY u.created_at DESC LIMIT 1), '') AS buyer_name
          FROM commissions c LEFT JOIN marketplace_products p ON p.id = c.product_id
@@ -496,15 +496,12 @@ async function handleStats(request, env) {
     admins_total = Number(ad && ad.c || 0);
   } catch (_) {}
 
-  let commission_settings;
-  try { commission_settings=await nyxMemberCommissionSettings(env,userId); }
-  catch(e){console.error('personal commission settings',e);return json({success:false,error:'Tes taux personnels ne peuvent pas être chargés actuellement.'},500);}
   return json({
     success: true,
     products_total, products_active, products_draft,
     team_n1, team_total,
     clicks,
-    gains, pending, gains_by_product, sales, recruits, commission_settings,
+    gains, pending, gains_by_product, sales, recruits,
     users_total, affiliates_total, admins_total,
     code: code || null,
     userId: userId || null
@@ -1398,7 +1395,7 @@ async function nyxiaBoutiqueFeed(){
  },catalog.ok?200:502);
 }
 
-export default {
+const nxOriginalWorker = {
   // Cron quotidien : Éric vérifie les inactifs et alerte
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runEricInactivityCheck(env));
@@ -1416,14 +1413,9 @@ const url = new URL(request.url);
       const feed=await nyxiaPublicJson('https://repertoire.nyxia.top/api/repertoire');
       if(!feed.ok)return json(feed.data,feed.status);
       if(!Array.isArray(feed.data.products))return json({error:'Catalogue NyXia invalide.'},502);
-      const userId=session.userId||session.id;if(!userId)return json({error:'Compte introuvable.'},401);
-      let settings;try{settings=await nyxMemberCommissionSettings(env,userId)}catch(e){return json({error:'Tes commissions personnelles ne peuvent pas être chargées.'},502)}
-      const ratesByProduct=new Map(settings.products.map(p=>[p.product_id,p]));
-      const products=feed.data.products.map(p=>{
-        const own=ratesByProduct.get(p.id);if(!own)return p;
-        const referralDisplay=own.via_closer&&!settings.closer_active;const shown=referralDisplay?own.closer_referral_rates:own.rates;
-        return {...p,commission_n1:shown[0],commission_n2:shown[1],commission_n3:shown[2],personal_commission_rates:own.rates,has_personal_commission:own.personal,commission_display_context:referralDisplay?'referral':'personal',commercial_director:settings.closer_active,via_closer:own.via_closer,closer_conclusion_rate:settings.closer_active&&own.via_closer?settings.closer_conclusion_rate:null};
-      });
+      let closerOffers=[];
+      if(env.DB){try{const table=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='closer_offers'").first();if(table){const result=await env.DB.prepare("SELECT id,product_id FROM closer_offers WHERE active=1 AND booking_url<>'' ORDER BY created_at ASC").all();closerOffers=result.results||[];}}catch(e){return json({error:'Les rendez-vous Closer ne peuvent pas être chargés.'},502);}}
+      const products=feed.data.products.map(p=>{const offer=closerOffers.find(o=>o.product_id===p.id);return offer?{...p,commission_n1:8,commission_n2:5,commission_n3:2}:p;});
       return json({products});
     }
     if(path==='/api/nyxia-universe/boutique'&&request.method==='GET')return await nyxiaBoutiqueFeed();
@@ -1881,6 +1873,8 @@ async function handleChat(request, env) {
   let systemPrompt = (SYSTEM_PROMPTS[agent] || SYSTEM_PROMPTS.nyxia)
     .replace(/\{first_name\}/g, userName || 'toi');
 
+  const premiumProfile=await nxPremiumRead(env,agent);
+  systemPrompt=await nxPremiumPrompt(env,agent,systemPrompt);
   systemPrompt += `\n\nPHILOSOPHIE DU PORTAIL LE CERCLE (rappel) : entraide, pas MLM, pas paliers, pas vente dure. Chacun gagne à aider les autres à réussir. Tu es un PERSONNAGE, jamais « une IA » ou « un robot ».`;
   systemPrompt += IMAGE_GENERATION_INSTRUCTIONS;
   systemPrompt += TERMINOLOGIE_OFFICIELLE;
@@ -1973,11 +1967,11 @@ async function handleChat(request, env) {
   }
 
   // Modèle principal deepseek-v3.2, repli automatique sur mistral-small.
-  let resp = await callModel(OPENROUTER_MODEL);
-  let usedModel = OPENROUTER_MODEL;
+  let resp = await callModel(premiumProfile?.modelPrimary||OPENROUTER_MODEL);
+  let usedModel = premiumProfile?.modelPrimary||OPENROUTER_MODEL;
   if (!resp.ok) {
-    resp = await callModel(OPENROUTER_FALLBACK_MODEL);
-    usedModel = OPENROUTER_FALLBACK_MODEL;
+    resp = await callModel(premiumProfile?.modelFallback||OPENROUTER_FALLBACK_MODEL);
+    usedModel = premiumProfile?.modelFallback||OPENROUTER_FALLBACK_MODEL;
   }
 
   if (!resp.ok) {
@@ -2790,7 +2784,7 @@ async function retrieveBrain(env, agent, query, topK = 5) {
     const results = await env.VECTORIZE_INDEX.query(embeddings.data[0], {
       topK: topK,
       returnMetadata: 'all',
-      namespace: agent
+      namespace: ((await nxPremiumRead(env,agent))?.vectorNamespace||agent)
     });
 
     if (!results.matches || results.matches.length === 0) return '';
@@ -2978,10 +2972,13 @@ async function handleTTSNyxia(request, env) {
 
   // ── Voie 0 : ElevenLabs (priorité absolue si configuré — normalement NyXia) ──
   const elevenLabsVoiceIdKey = AGENT_ELEVENLABS_VOICE_ID_KEYS[agent];
-  const elevenLabsVoiceId = (elevenLabsVoiceIdKey ? env[elevenLabsVoiceIdKey] : null) || ELEVENLABS_VOICE_ID_DEFAULTS[agent] || null;
+  const premiumVoiceProfile=await nxPremiumRead(env,agent);
+  const premiumVoice=String(premiumVoiceProfile?.voiceId||'').trim();
+  const premiumOpenAI=['alloy','ash','ballad','coral','echo','fable','nova','onyx','sage','shimmer','verse','marin','cedar'].includes(premiumVoice.toLowerCase().replace(/^openai[:/]/,''))?premiumVoice.toLowerCase().replace(/^openai[:/]/,''):'';
+  const elevenLabsVoiceId = premiumOpenAI?null:(premiumVoice||(elevenLabsVoiceIdKey ? env[elevenLabsVoiceIdKey] : null) || ELEVENLABS_VOICE_ID_DEFAULTS[agent] || null);
 
   if (elevenLabsVoiceId) {
-    const cacheKey = 'tts_cache_elevenlabs:' + agent + ':' + (await sha256Hex(cleanText));
+    const cacheKey = 'tts_cache_elevenlabs:' + agent + ':' + elevenLabsVoiceId + ':' + (await sha256Hex(cleanText));
     const cachedBuf = await env.CASHFLOW_KV.get(cacheKey, 'arrayBuffer');
     if (cachedBuf) {
       return json({
@@ -3050,7 +3047,7 @@ async function handleTTSNyxia(request, env) {
   }
 
   // ── Voie 2 : OpenAI (voix distinctes, moins chères, sans clonage) ──
-  const openaiVoice = OPENAI_VOICE_MAP[agent];
+  const openaiVoice = premiumOpenAI||OPENAI_VOICE_MAP[agent];
   if (openaiVoice) {
     const openaiKey = env.OpenAI_KEY || env.OpenAi_KEY || env.OPENAI_API_KEY || '';
     if (!openaiKey) {
@@ -3371,19 +3368,60 @@ async function nyxStudioSaleStatus(request,env) {
  return json({success:true,secret_configured:!!String(env.STUDIO_WEBHOOK_SECRET||'').trim(),receipt});
 }
 
-// Affichage du compte connecté : mêmes taux produit/personnels que le calcul des ventes directes.
-// Le contrat de l’Outil Closer reste distinct : conclusion 25 %, recommandations 8 / 5 / 2.
-async function nyxMemberCommissionSettings(env,userId){
- if(!env.DB||!userId)throw Error('Compte requis.');
- const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('commission_overrides','closer_accounts','closer_offers')").all();
- const available=new Set((tables.results||[]).map(t=>t.name));
- const products=await env.DB.prepare('SELECT id,title,commission_n1,commission_n2,commission_n3,status FROM marketplace_products ORDER BY title').all();
- const overrides=available.has('commission_overrides')?(await env.DB.prepare('SELECT product_id,commission_n1,commission_n2,commission_n3 FROM commission_overrides WHERE beneficiary_id=?').bind(userId).all()).results||[]:[];
- const closer=available.has('closer_accounts')?await env.DB.prepare('SELECT active FROM closer_accounts WHERE user_id=?').bind(userId).first():null;
- const offers=available.has('closer_offers')?(await env.DB.prepare("SELECT DISTINCT product_id FROM closer_offers WHERE active=1 AND booking_url<>''").all()).results||[]:[];
- const map=new Map(overrides.map(o=>[o.product_id,o])),closerProducts=new Set(offers.map(o=>o.product_id));
- return {closer_active:Number(closer?.active)===1,closer_conclusion_rate:25,products:(products.results||[]).map(p=>{
-  const own=map.get(p.id),personal=[1,2,3].some(n=>own?.['commission_n'+n]!=null);
-  return {product_id:p.id,title:p.title,status:p.status,personal,rates:[1,2,3].map(n=>Number(own?.['commission_n'+n]??p['commission_n'+n]??0)),via_closer:closerProducts.has(p.id),closer_referral_rates:[8,5,2]};
- })};
+async function nxPremiumRead(env,key){
+  if(!env.CASHFLOW_KV)return null;
+  try{const raw=await env.CASHFLOW_KV.get('nyxia:personnage-profil:'+String(key).toLowerCase());return raw?JSON.parse(raw):null}catch(_){return null}
+}
+const NX_PREMIUM_FIELDS=['name','visibleRole','sub','shortDescription','biography','mission','prompt','systemPrompt','personality','values','tone','languageStyle','favoriteExpressions','avoidExpressions','expertise','skills','methods','teachingStyle','ethics','limits','canDo','cannotDo','welcomeMessage','greeting','suggestions','image','welcomeVideo','voiceName','voiceId','modelPrimary','modelFallback','vectorNamespace','resources'];
+function nxPremiumMerge(base,profile){
+  const a={...base};if(!profile)return a;
+  for(const k of NX_PREMIUM_FIELDS)if(Object.prototype.hasOwnProperty.call(profile,k)){
+    if(k==='voiceId'&&!String(profile[k]||'').trim())continue;
+    a[k]=profile[k];
+  }
+  if(Object.prototype.hasOwnProperty.call(profile,'visibleRole'))a.sub=profile.visibleRole;
+  if(Object.prototype.hasOwnProperty.call(profile,'welcomeMessage'))a.greeting=profile.welcomeMessage;
+  if(Object.prototype.hasOwnProperty.call(profile,'mission'))a.prompt=profile.mission;
+  return a;
+}
+async function nxPremiumAgent(env,key,base){return nxPremiumMerge(base,await nxPremiumRead(env,key))}
+function nxPremiumInstructions(p){
+  if(!p)return '';
+  const labels={name:'Nom',visibleRole:'Rôle',biography:'Biographie',mission:'Mission',systemPrompt:'Instructions du personnage',personality:'Personnalité',values:'Valeurs',tone:'Ton',languageStyle:'Langage',favoriteExpressions:'Expressions favorites',avoidExpressions:'Expressions à éviter',expertise:'Expertise',skills:'Compétences',methods:'Méthodes',teachingStyle:'Pédagogie',ethics:'Éthique',limits:'Limites',canDo:'Peut faire',cannotDo:'Ne doit pas faire'};
+  return Object.entries(labels).filter(([k])=>typeof p[k]==='string'&&p[k].trim()).map(([k,label])=>label+' : '+p[k]).join('\n');
+}
+async function nxPremiumPrompt(env,key,base){
+  const p=await nxPremiumRead(env,key);if(!p)return base;
+  return base+'\n\nFICHE PREMIUM ACTUELLE : les éléments suivants remplacent les anciennes descriptions de ce personnage. Conserve les règles techniques du portail.\n'+nxPremiumInstructions(p);
+}
+
+
+const NX_PREMIUM_KEYS=()=>Object.keys(SYSTEM_PROMPTS);
+export default {async fetch(request,env,ctx){const live=await nxLiveApi(request,env,ctx);if(live)return live;return nxOriginalWorker.fetch(request,env,ctx)}};
+
+const NX_LIVE_PORTAL=env=>promoFormationPortal(env);
+async function NX_LIVE_OPEN(env,s,agent,id){const fs=await formations(env,agent);if(!fs.some(f=>f.id===id))return null;return formationTurn(env,s,agent,'commencer ma formation',id)}
+async function nxLiveApi(request,env,ctx){
+ const u=new URL(request.url);if(!['/api/personnage/live','/api/personnage/formation/open'].includes(u.pathname))return null;
+ const b=request.method==='POST'?await request.clone().json().catch(()=>({})):{};
+ const token=String(b.token||u.searchParams.get('token')||''),agent=String(b.agent||u.searchParams.get('agent')||'').toLowerCase();
+ if(!NX_PREMIUM_KEYS().includes(agent))return json({error:'Personnage non disponible.'},403);
+ const check=await nxOriginalWorker.fetch(new Request(new URL('/api/check-auth',request.url),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}),env,ctx);
+ let auth;try{auth=await check.json()}catch(_){return json({error:'Session expirée.'},401)}
+ if(!auth.valid)return json({error:'Session expirée.'},401);
+ if(typeof requireEricAccess==='function'&&agent==='eric'){const blocked=await requireEricAccess(env,auth);if(blocked)return blocked;}
+ const raw=await nxPremiumRead(env,agent),p=raw||{};
+ const portal=NX_LIVE_PORTAL(env);
+ const allowed=(p.formationTriggers||[]).filter(t=>t.active!==false&&String(t.key||'').startsWith('formation:'+portal+':'+agent+':'));
+ if(u.pathname==='/api/personnage/live'){
+   const pub={};for(const k of ['name','sub','image','welcomeVideo','greeting','suggestions','resources'])if(Object.prototype.hasOwnProperty.call(p,k))pub[k]=p[k];
+   if(Object.prototype.hasOwnProperty.call(p,'visibleRole'))pub.sub=p.visibleRole;
+   if(Object.prototype.hasOwnProperty.call(p,'welcomeMessage'))pub.greeting=p.welcomeMessage;
+   pub.formationTriggers=allowed;
+   return new Response(JSON.stringify({profile:pub}),{headers:{'Content-Type':'application/json','Cache-Control':'private, no-store'}});
+ }
+ const t=allowed.find(t=>t.key===b.key);if(!t)return json({error:'Formation non disponible pour ce personnage.'},403);
+ const id=t.key.split(':').slice(3).join(':'),s={email:auth.email,firstname:auth.firstname||auth.first_name||auth.userName||''};
+ const result=await NX_LIVE_OPEN(env,s,agent,id);
+ return result?json(result):json({error:'Formation introuvable.'},404);
 }
