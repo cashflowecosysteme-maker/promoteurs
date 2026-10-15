@@ -59,7 +59,9 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
       var value=n!==null&&Number.isFinite(n)&&n>=0&&n<=100 ? n.toLocaleString('fr-CA',{maximumFractionDigits:2})+' %' : 'Non renseigné';
       return '<div class="commission-rate"><span>'+label+'</span><strong>'+value+'</strong></div>';
     }).join('');
-    return '<div class="commissions" aria-label="Commissions de cette offre">'+blocks+'</div><p class="commission-note">Taux de l’offre. Une commission personnalisée peut s’appliquer à ton compte.</p>';
+    var note=p.via_closer?'Tes taux de recommandation pour une vente via l’Outil Closer.':p.has_personal_commission?'Tes taux personnels pour cette offre.':'Tes taux selon cette offre.';
+    var conclusion=p.closer_conclusion_rate!=null?'<p style="color:#ffe48a;font-size:15px;margin-bottom:14px">Si tu conclus cette vente en tant que closer : '+esc(Number(p.closer_conclusion_rate).toLocaleString('fr-CA'))+' %.</p>':'';
+    return '<div class="commissions" aria-label="Tes commissions pour cette offre">'+blocks+'</div><p class="commission-note">'+note+'</p>'+conclusion;
   }
   function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDigits:2,maximumFractionDigits:2})+' $';}
   function withRef(url, code){

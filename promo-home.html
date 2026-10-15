@@ -55,6 +55,7 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
   <div class="stat"><span>Clics sur ton lien</span><b id="clics">0</b></div>
 </div>
 <p id="statsError" role="alert" style="color:var(--gold)" hidden></p>
+<div class="card" id="myCommissionCard" hidden><h2 style="margin:0 0 12px;font-size:16px;color:#ffe48a;font-weight:400">Mes pourcentages de commission</h2><div id="myCommissionRates"></div></div>
 <div class="card" id="byProductCard" style="display:none">
   <h2 style="margin:0 0 10px;font-size:15px">Mes gains, produit par produit</h2>
   <div id="byProductList" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -89,6 +90,13 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
           +'</div>';
       }).join('');
     }
+    var settings=st.commission_settings||{},configured=settings.products||[];
+    var rate=function(n){return Number(n).toLocaleString('fr-CA',{maximumFractionDigits:2})+' %'};
+    document.getElementById('myCommissionCard').hidden=false;
+    document.getElementById('myCommissionRates').innerHTML=(settings.closer_active?'<p style="font-size:16px;color:#ffe48a;margin-bottom:14px">Pour une vente que tu conclus via l’Outil Closer : '+esc(rate(settings.closer_conclusion_rate))+'</p>':'')+(configured.length?configured.map(function(p){
+      var circles=p.rates.map(function(n,i){return 'Cercle '+(i+1)+' : '+rate(n)}).join(' · ');
+      return '<div style="padding:12px 0;border-top:1px solid var(--border)"><p style="color:#fff;font-size:15px">'+esc(p.title)+'</p><p style="margin-top:6px;color:#d6d9f0;font-size:12px">'+(p.personal?'Tes taux personnels configurés':'Tes taux selon le produit')+'</p><p style="color:#ffe48a;font-size:15px;margin-top:4px">'+esc(circles)+'</p>'+(p.via_closer?'<p style="margin-top:8px;font-size:12px;color:#c4b5fd">Pour les recommandations via l’Outil Closer : '+esc(p.closer_referral_rates.map(function(n,i){return 'Cercle '+(i+1)+' : '+rate(n)}).join(' · '))+'</p>':'')+'</div>';
+    }).join(''):'Aucun taux de produit configuré pour le moment.');
     var sales=st.sales||[];
     document.getElementById('salesList').innerHTML=sales.length?sales.map(function(s){
       var date=new Date(s.created_at);
@@ -97,7 +105,8 @@ function money(n){return Number(n||0).toLocaleString('fr-CA',{minimumFractionDig
         +'<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><strong style="color:#fff">'+esc(s.product_title)+'</strong><strong style="color:var(--gold)">'+esc(money(s.amount))+' '+esc(s.currency||'CAD')+'</strong></div>'
         +'<p style="margin-top:6px;font-size:13px">Client : '+esc(s.buyer_name||s.buyer_email||'Nom non transmis avec la vente')+'</p>'
         +'<p style="margin-top:6px;font-size:12px;color:var(--t3)">'+esc(isNaN(date.getTime())?'Date non précisée':date.toLocaleString('fr-CA'))+' · '+esc(label)+' · '+esc(Number(s.level)===0?'Conclusion de vente — Closer':({1:'Recommandation Personnelle',2:'Chef d’équipe',3:'Bonus d’équipe'})[Number(s.level)]||'Origine non précisée')+'</p>'
-        +(s.sale_amount!=null?'<p style="margin-top:4px;font-size:12px">Montant de la vente : '+esc(money(s.sale_amount))+' '+esc(s.currency||'CAD')+'</p>':'')
+        +(s.rate_percent!=null?'<p style="margin-top:6px;font-size:14px;color:#ffe48a">Taux appliqué à cette commission : '+esc(rate(s.rate_percent))+'</p>':'')
+        +(s.sale_amount!=null?'<p style="margin-top:4px;font-size:12px">Base de calcul de cette commission : '+esc(money(s.sale_amount))+' '+esc(s.currency||'CAD')+'</p>':'')
         +'</div>';
     }).join(''):'Aucune vente avec une commission attribuée à ton compte pour le moment.';
     var recruits=st.recruits||[];

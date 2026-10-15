@@ -460,7 +460,7 @@ async function handleStats(request, env) {
     }
       const history = await env.DB.prepare(
         `SELECT c.id, c.sale_id, c.product_id, COALESCE(p.title, 'Produit non identifié') AS product_title,
-                c.amount, c.currency, c.status, c.level, c.sale_amount, c.created_at, c.buyer_email,
+                c.amount, c.currency, c.status, c.level, c.sale_amount, c.rate_percent, c.rate_source, c.source, c.created_at, c.buyer_email,
                 COALESCE(NULLIF(c.buyer_name,''),
                   (SELECT NULLIF(u.full_name,'') FROM users u WHERE lower(u.email) = lower(c.buyer_email) ORDER BY u.created_at DESC LIMIT 1), '') AS buyer_name
          FROM commissions c LEFT JOIN marketplace_products p ON p.id = c.product_id
@@ -496,12 +496,15 @@ async function handleStats(request, env) {
     admins_total = Number(ad && ad.c || 0);
   } catch (_) {}
 
+  let commission_settings;
+  try { commission_settings=await nyxMemberCommissionSettings(env,userId); }
+  catch(e){console.error('personal commission settings',e);return json({success:false,error:'Tes taux personnels ne peuvent pas être chargés actuellement.'},500);}
   return json({
     success: true,
     products_total, products_active, products_draft,
     team_n1, team_total,
     clicks,
-    gains, pending, gains_by_product, sales, recruits,
+    gains, pending, gains_by_product, sales, recruits, commission_settings,
     users_total, affiliates_total, admins_total,
     code: code || null,
     userId: userId || null
@@ -1413,9 +1416,14 @@ const url = new URL(request.url);
       const feed=await nyxiaPublicJson('https://repertoire.nyxia.top/api/repertoire');
       if(!feed.ok)return json(feed.data,feed.status);
       if(!Array.isArray(feed.data.products))return json({error:'Catalogue NyXia invalide.'},502);
-      let closerOffers=[];
-      if(env.DB){try{const table=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='closer_offers'").first();if(table){const result=await env.DB.prepare("SELECT id,product_id FROM closer_offers WHERE active=1 AND booking_url<>'' ORDER BY created_at ASC").all();closerOffers=result.results||[];}}catch(e){return json({error:'Les rendez-vous Closer ne peuvent pas être chargés.'},502);}}
-      const products=feed.data.products.map(p=>{const offer=closerOffers.find(o=>o.product_id===p.id);return offer?{...p,commission_n1:8,commission_n2:5,commission_n3:2}:p;});
+      const userId=session.userId||session.id;if(!userId)return json({error:'Compte introuvable.'},401);
+      let settings;try{settings=await nyxMemberCommissionSettings(env,userId)}catch(e){return json({error:'Tes commissions personnelles ne peuvent pas être chargées.'},502)}
+      const ratesByProduct=new Map(settings.products.map(p=>[p.product_id,p]));
+      const products=feed.data.products.map(p=>{
+        const own=ratesByProduct.get(p.id);if(!own)return p;
+        const shown=own.via_closer?own.closer_referral_rates:own.rates;
+        return {...p,commission_n1:shown[0],commission_n2:shown[1],commission_n3:shown[2],personal_commission_rates:own.rates,has_personal_commission:own.personal,via_closer:own.via_closer,closer_conclusion_rate:settings.closer_active&&own.via_closer?settings.closer_conclusion_rate:null};
+      });
       return json({products});
     }
     if(path==='/api/nyxia-universe/boutique'&&request.method==='GET')return await nyxiaBoutiqueFeed();
@@ -3361,4 +3369,21 @@ async function nyxStudioSaleStatus(request,env) {
  if(!session || !['admin','superadmin'].includes(session.role))return json({error:'Connecte-toi avec ton compte administrateur Promoteurs.'},401);
  const receipt=env.CASHFLOW_KV?await env.CASHFLOW_KV.get('studio_sale:last_receipt','json'):null;
  return json({success:true,secret_configured:!!String(env.STUDIO_WEBHOOK_SECRET||'').trim(),receipt});
+}
+
+// Affichage du compte connecté : mêmes taux produit/personnels que le calcul des ventes directes.
+// Le contrat de l’Outil Closer reste distinct : conclusion 25 %, recommandations 8 / 5 / 2.
+async function nyxMemberCommissionSettings(env,userId){
+ if(!env.DB||!userId)throw Error('Compte requis.');
+ const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('commission_overrides','closer_accounts','closer_offers')").all();
+ const available=new Set((tables.results||[]).map(t=>t.name));
+ const products=await env.DB.prepare('SELECT id,title,commission_n1,commission_n2,commission_n3,status FROM marketplace_products ORDER BY title').all();
+ const overrides=available.has('commission_overrides')?(await env.DB.prepare('SELECT product_id,commission_n1,commission_n2,commission_n3 FROM commission_overrides WHERE beneficiary_id=?').bind(userId).all()).results||[]:[];
+ const closer=available.has('closer_accounts')?await env.DB.prepare('SELECT active FROM closer_accounts WHERE user_id=?').bind(userId).first():null;
+ const offers=available.has('closer_offers')?(await env.DB.prepare("SELECT DISTINCT product_id FROM closer_offers WHERE active=1 AND booking_url<>''").all()).results||[]:[];
+ const map=new Map(overrides.map(o=>[o.product_id,o])),closerProducts=new Set(offers.map(o=>o.product_id));
+ return {closer_active:Number(closer?.active)===1,closer_conclusion_rate:25,products:(products.results||[]).map(p=>{
+  const own=map.get(p.id),personal=[1,2,3].some(n=>own?.['commission_n'+n]!=null);
+  return {product_id:p.id,title:p.title,status:p.status,personal,rates:[1,2,3].map(n=>Number(own?.['commission_n'+n]??p['commission_n'+n]??0)),via_closer:closerProducts.has(p.id),closer_referral_rates:[8,5,2]};
+ })};
 }
