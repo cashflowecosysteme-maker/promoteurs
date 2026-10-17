@@ -1,3 +1,4 @@
+function nxModuleHeading(m,index){const title=String(m?.titre||'');const mode=m?.prefixMode||'none';const prefix=mode==='none'?'':mode==='custom'?String(m?.prefixText||''):'Module '+(m?.numero||index+1)+' ·';return[prefix,title].filter(Boolean).join(' ')}
 // ============================================================
 // NyXia — Le Cercle (Admin + Promoteur) — Worker fidèle Studio (chats + voix + images) + D1 Cercles
 // ============================================================
@@ -1279,7 +1280,7 @@ function formationContent(f,pos,first,review=false){
  const body=renderBlock(pos.b,first);
  const showHeader=Number(pos.bi||0)===0;
  const header=showHeader
-  ? (review?'🔁 **Révision · ':'🎓 **')+(f.titre||'Formation')+' — Module '+(pos.m.numero||pos.mi+1)+' · '+(pos.m.titre||'')+'**\n\n'
+  ? (review?'🔁 **Révision · ':'🎓 **')+(f.titre||'Formation')+' — '+nxModuleHeading(pos.m,pos.mi)+'**\n\n'
   : '';
  return header+body+
    (review?'\n\n— Dis-moi « suite » pour continuer ta révision.':'\n\n— Quand tu es prête, dis-moi « suite ».');
@@ -3448,3 +3449,4 @@ async function nxFormationFlowApi(request,env,ctx){
  result.content=String(result.content||'').replace(/\n\n— [^\n]*(?:[«“]suite[»”]|dis [«“]suite[»”])[^\n]*\s*$/i,'');
  return json({...result,formationId:result.formationId||selected.id});
 }
+
