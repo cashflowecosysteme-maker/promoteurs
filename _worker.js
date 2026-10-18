@@ -716,7 +716,7 @@ async function handleHelpdesk(request, env) {
   if (!apiKey) return json({ content: 'Je reviens dans un instant 💜 (petite configuration en cours).' });
 
   async function callModel(model) {
-    return await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    return await nxChatCompletionFetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -727,7 +727,7 @@ async function handleHelpdesk(request, env) {
       body: JSON.stringify({
         model,
         messages,
-        max_tokens: 1200,
+        max_tokens: 32000,
         reasoning: { enabled: false }
       })
     });
@@ -1950,7 +1950,7 @@ async function handleChat(request, env) {
   }
 
   async function callModel(model) {
-    return await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    return await nxChatCompletionFetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1984,39 +1984,7 @@ async function handleChat(request, env) {
   let finish = data.choices?.[0]?.finish_reason || '';
 
   // Si le modèle coupe (plafond de sortie), on continue automatiquement jusqu'à 3 fois
-  const continueMessages = messages.slice();
-  if (content) continueMessages.push({ role: 'assistant', content });
 
-  let cont = 0;
-  while (cont < 3 && content && (finish === 'length' || looksTruncated(content))) {
-    cont++;
-    continueMessages.push({
-      role: 'user',
-      content: 'Continue exactement où tu t\'es arrêté. Ne répète pas ce qui est déjà écrit. Reprends en milieu de phrase si besoin et termine TOUTE la réponse / le prompt complet.'
-    });
-    const contResp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${env.OPENROUTER_API_KEY || env.AI_API_KEY}`,
-        'HTTP-Referer': 'https://cercles.nyxia.top',
-        'X-Title': 'NyXia — Le Cercle'
-      },
-      body: JSON.stringify({
-        model: usedModel,
-        messages: continueMessages,
-        max_tokens: 32000,
-        reasoning: { enabled: false }
-      })
-    });
-    if (!contResp.ok) break;
-    const contData = await contResp.json();
-    const piece = contData.choices?.[0]?.message?.content || '';
-    finish = contData.choices?.[0]?.finish_reason || '';
-    if (!piece) break;
-    content += piece;
-    continueMessages.push({ role: 'assistant', content: piece });
-  }
 
   if (!content) content = 'Le miroir est resté silencieux, réessaie 💜';
   return json({ content });
@@ -2120,7 +2088,7 @@ Réponds en français (sauf demande contraire). Sois clair, structuré et utile.
 
   for (const mId of chain) {
     try {
-      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      const resp = await nxChatCompletionFetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -3450,3 +3418,43 @@ async function nxFormationFlowApi(request,env,ctx){
  return json({...result,formationId:result.formationId||selected.id});
 }
 
+
+// Plafond commun des réponses : 32 000 tokens et trois prolongations maximum.
+async function nxChatCompletionFetch(url, options) {
+  const payload = JSON.parse(options.body);
+  payload.max_tokens = 32000;
+  delete payload.max_completion_tokens;
+  let response = await fetch(url, {...options, body: JSON.stringify(payload)});
+  if (!response.ok || payload.stream) return response;
+  let data;
+  try { data = await response.clone().json(); } catch (_) { return response; }
+  const first = data.choices?.[0];
+  if (!first || typeof first.message?.content !== 'string') return response;
+  let content = first.message.content;
+  let finish = first.finish_reason;
+  const messages = [...(payload.messages || [])];
+  const incomplete = text => {
+    if (typeof looksTruncated === 'function') return looksTruncated(text);
+    return false;
+  };
+  for (let count = 0; count < 3 && content && (finish === 'length' || incomplete(content)); count++) {
+    messages.push({role: 'assistant', content: count ? data.choices[0].message.content : content});
+    messages.push({role: 'user', content: "Continue exactement où tu t'es arrêté, sans répéter le texte précédent, et termine ta réponse."});
+    let next;
+    try { next = await fetch(url, {...options, body: JSON.stringify({...payload, messages})}); }
+    catch (_) { break; }
+    if (!next.ok) break;
+    let part;
+    try { part = await next.json(); } catch (_) { break; }
+    const piece = part.choices?.[0]?.message?.content;
+    if (typeof piece !== 'string' || !piece) break;
+    content += piece;
+    data = part;
+    finish = part.choices[0].finish_reason;
+  }
+  const result = {...data, choices: [{...first, finish_reason: finish, message: {...first.message, content}}, ...(data.choices || []).slice(1)]};
+  const headers = new Headers(response.headers);
+  headers.delete('content-length'); headers.delete('content-encoding');
+  headers.set('content-type', 'application/json');
+  return new Response(JSON.stringify(result), {status: response.status, headers});
+}
