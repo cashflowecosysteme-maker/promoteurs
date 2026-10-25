@@ -360,7 +360,7 @@
 
 
   function useSuggestion(btn) {
-    var text = (btn.textContent || '').trim()
+    var text = (btn.getAttribute('data-message') || btn.textContent || '').trim()
     if (!text) return
     var input = document.getElementById('chat-input')
     if (input) { input.value = text; input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px' }
@@ -554,7 +554,7 @@
         if(typeof renderAgentSuggestions==='function')renderAgentSuggestions()
         else if(Array.isArray(p.suggestions)){
           var suggestions=document.getElementById('suggestions')
-          if(suggestions){suggestions.innerHTML='';p.suggestions.slice(0,4).forEach(function(item){var button=document.createElement('button');button.type='button';button.className='sug-chip';button.textContent=typeof item==='string'?item:String(item.label||item.message||'');button.onclick=function(){if(typeof useSuggestion==='function')useSuggestion(button);else sendMessageText(typeof item==='string'?item:(item.message||item.label||''),false,{})};suggestions.appendChild(button)})}
+          if(suggestions){suggestions.innerHTML='';p.suggestions.slice(0,4).forEach(function(item){var button=document.createElement('button');button.type='button';button.className='sug-chip';var trigger=null;if(typeof item==='string'&&item.indexOf('@NYXIA_TRIGGER:')===0){try{trigger=JSON.parse(item.slice('@NYXIA_TRIGGER:'.length))}catch(e){}}button.textContent=trigger&&typeof trigger.l==='string'?trigger.l:(typeof item==='string'?item:String(item.label||item.message||''));if(trigger&&trigger.a==='chat'&&typeof trigger.m==='string')button.setAttribute('data-message',trigger.m);button.onclick=function(){if(typeof useSuggestion==='function')useSuggestion(button);else sendMessageText(typeof item==='string'?item:(item.message||item.label||''),false,{})};suggestions.appendChild(button)})}
         }
 
         var greeting=document.querySelector('[data-welcome-text="1"] .msg-bubble')
