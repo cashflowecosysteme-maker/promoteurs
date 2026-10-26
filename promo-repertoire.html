@@ -140,7 +140,6 @@ dialog{width:min(760px,calc(100% - 32px));max-height:90vh;overflow:auto;margin:a
     var sale=saleLink(p,myCode);
     return '<div class="card">'
       +'<h3>'+esc(p.title)+'</h3>'
-      +'<div class="price">'+money(p.price)+'</div>'
       +commissionRates(p)
       +(sale?(' <a class="btn gold-action" href="'+esc(sale)+'" target="_blank" rel="noopener">Voir l’offre</a>'):'')
       +' <button type="button" class="btn" data-detail="'+i+'">En Savoir Plus</button>'
